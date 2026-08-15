@@ -1,0 +1,6 @@
+{
+  "name": "Provalino",
+  "description": "Gerador e organizador inteligente de provas e avaliações para professores.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
