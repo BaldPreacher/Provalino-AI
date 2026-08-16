@@ -1,6 +1,6 @@
 {
   "name": "Provalino",
-  "description": "Gerador e organizador inteligente de provas e avaliações para professores.",
+  "description": "Assistente Pedagógico Inteligente e Inclusivo para professores do ensino fundamental e infantil: crie avaliações, planos de aula e adaptações DUA/AEE com facilidade.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

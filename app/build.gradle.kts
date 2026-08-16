@@ -14,8 +14,8 @@ android {
     applicationId = "com.aistudio.provalino.teacher.abcxyz"
     minSdk = 24
     targetSdk = 36
-    versionCode = 28
-    versionName = "28.0"
+    versionCode = 30
+    versionName = "30.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -39,7 +39,7 @@ android {
   buildTypes {
     release {
       isCrunchPngs = false
-      isMinifyEnabled = false
+      isMinifyEnabled = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
     }

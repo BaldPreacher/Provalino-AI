@@ -110,6 +110,26 @@ fun PrivacyPolicyDialog(
                     PolicyBodyText(
                         "Para dúvidas, solicitações de exclusão de dados ou esclarecimentos sobre nossa política de privacidade, entre em contato através do e-mail: marcio.moura2708@gmail.com."
                     )
+
+                    PolicySectionTitle("8. Versão Web Oficial (GitHub Pages)")
+                    PolicyBodyText(
+                        "Você pode acessar esta política de privacidade e o formulário de solicitação de exclusão de dados diretamente pelo navegador através da nossa página oficial:"
+                    )
+                    
+                    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+                    OutlinedButton(
+                        onClick = {
+                            try {
+                                uriHandler.openUri("http://baldpreacher.github.io/Provalino-AI/")
+                            } catch (e: Exception) {
+                                // ignore
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("🌐 Acessar Portal Web e Exclusão (GitHub Pages)", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
                 }
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)

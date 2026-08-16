@@ -11,12 +11,19 @@ object AnalyticsRepository {
 
     fun initialize(context: Context) {
         try {
-            if (firebaseAnalytics == null) {
-                firebaseAnalytics = FirebaseAnalytics.getInstance(context)
-                Log.d(TAG, "Firebase Analytics inicializado com sucesso.")
+            if (com.google.firebase.FirebaseApp.getApps(context).isNotEmpty()) {
+                val app = com.google.firebase.FirebaseApp.getInstance()
+                if (!app.options.applicationId.isNullOrEmpty()) {
+                    if (firebaseAnalytics == null) {
+                        firebaseAnalytics = FirebaseAnalytics.getInstance(context)
+                        Log.d(TAG, "Firebase Analytics inicializado com sucesso.")
+                    }
+                } else {
+                    Log.d(TAG, "Firebase Analytics ignorado: google_app_id ausente.")
+                }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Falha ao inicializar Firebase Analytics: ${e.message}")
+            Log.d(TAG, "Firebase Analytics não disponível: ${e.message}")
         }
     }
 

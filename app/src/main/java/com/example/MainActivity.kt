@@ -291,7 +291,8 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
                             }
                         }
 
-                        if (currentUser?.email == "marcio.moura2708@gmail.com") {
+                        val isAdmin = currentUser?.email == "marcio.moura2708@gmail.com" || currentUser?.email == "admteste@example.com"
+                        if (isAdmin) {
                             IconButton(onClick = { viewModel.toggleDeveloperPanel(true) }) {
                                 Icon(
                                     imageVector = Icons.Default.Settings,
@@ -474,7 +475,8 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
             }
         }
 
-        if (showDeveloperPanel && currentUser?.email == "marcio.moura2708@gmail.com") {
+        val isUserAdmin = currentUser?.email == "marcio.moura2708@gmail.com" || currentUser?.email == "admteste@example.com"
+        if (showDeveloperPanel && isUserAdmin) {
             DeveloperPanelDialog(
                 viewModel = viewModel,
                 currentUserEmail = currentUser?.email ?: "",
