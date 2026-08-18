@@ -3,7 +3,10 @@ package com.example.data
 import android.content.Context
 import android.util.Log
 import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 data class AppUpdateState(
     val isUpdateAvailable: Boolean = false,
@@ -43,25 +46,27 @@ object AppVersionChecker {
         }
     }
 
-    suspend fun checkForUpdates(context: Context): AppUpdateState {
+    suspend fun checkForUpdates(context: Context): AppUpdateState = withContext(Dispatchers.IO) {
         val currentVersionCode = getInstalledVersionCode(context)
         Log.d(TAG, "Installed Version Code: $currentVersionCode")
 
-        return try {
-            val firestore = FirebaseFirestore.getInstance()
-            val docSnapshot = firestore.collection("app_config")
-                .document("version")
-                .get()
-                .await()
+        try {
+            val result = withTimeoutOrNull(2500L) {
+                val firestore = FirebaseFirestore.getInstance()
+                firestore.collection("app_config")
+                    .document("version")
+                    .get()
+                    .await()
+            }
 
-            if (docSnapshot.exists()) {
-                val latestCode = docSnapshot.getLong("latest_version_code") ?: currentVersionCode
-                val minRequiredCode = docSnapshot.getLong("min_required_version_code") ?: currentVersionCode
-                val latestName = docSnapshot.getString("latest_version_name") ?: "22.0"
-                val title = docSnapshot.getString("update_title") ?: "Nova Versão do Provalino! 🚀"
-                val message = docSnapshot.getString("update_message")
+            if (result != null && result.exists()) {
+                val latestCode = result.getLong("latest_version_code") ?: currentVersionCode
+                val minRequiredCode = result.getLong("min_required_version_code") ?: currentVersionCode
+                val latestName = result.getString("latest_version_name") ?: "22.0"
+                val title = result.getString("update_title") ?: "Nova Versão do Provalino! 🚀"
+                val message = result.getString("update_message")
                     ?: "Uma nova versão com melhorias e correções está disponível na Google Play Store. Atualize agora para continuar aproveitando!"
-                val pkgName = docSnapshot.getString("package_name") ?: DEFAULT_PACKAGE
+                val pkgName = result.getString("package_name") ?: DEFAULT_PACKAGE
 
                 val isAvailable = latestCode > currentVersionCode
                 val isForce = currentVersionCode < minRequiredCode

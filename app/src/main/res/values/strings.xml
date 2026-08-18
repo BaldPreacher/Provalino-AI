@@ -1,3 +1,9 @@
 <resources>
     <string name="app_name">Provalino AI</string>
+
+    <!-- Firebase Configuration Resources -->
+    <string name="google_app_id" translatable="false">1:12454269674:android:0123456789abcdef</string>
+    <string name="gcm_defaultSenderId" translatable="false">12454269674</string>
+    <string name="default_web_client_id" translatable="false">12454269674-ismit34vnk620mg9msg2hev3cd2kct22.apps.googleusercontent.com</string>
+    <string name="project_id" translatable="false">provalino-app</string>
 </resources>

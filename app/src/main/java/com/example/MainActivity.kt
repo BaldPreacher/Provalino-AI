@@ -2,12 +2,14 @@ package com.example
 
 import com.aistudio.provalino.teacher.abcxyz.R
 import com.example.ui.LoginScreen
+import com.example.ui.PictogramSupportRow
 import com.example.ui.components.ProvalinoEmptyState
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.material3.Surface
 import com.example.data.AppUpdateState
+import com.example.data.PictogramInjector
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.HorizontalDivider
 
@@ -40,6 +42,9 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -106,6 +111,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.delay
@@ -144,20 +150,6 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        try {
-            if (com.google.firebase.FirebaseApp.getApps(this).isEmpty()) {
-                val options = com.google.firebase.FirebaseOptions.Builder()
-                    .setApiKey("AIzaSyB1CT13IqEQL2Z7f6GaY3vfAeyl02PCWQs")
-                    .setApplicationId("1:12454269674:android:9ad63afdc76a24cd0afd93")
-                    .setProjectId("provalino-ia-provas-adaptadas")
-                    .setStorageBucket("provalino-ia-provas-adaptadas.firebasestorage.app")
-                    .setGcmSenderId("12454269674")
-                    .build()
-                com.google.firebase.FirebaseApp.initializeApp(this, options)
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
         enableEdgeToEdge()
         setContent {
             MyApplicationTheme {
@@ -193,6 +185,7 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
     val tourStep by viewModel.tourStep.collectAsState()
     val showDeveloperPanel by viewModel.showDeveloperPanel.collectAsState()
     val updateState by viewModel.appUpdateState.collectAsState()
+    val offlineNoQuestionsState by viewModel.offlineNoQuestionsState.collectAsState()
 
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
@@ -229,120 +222,158 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
-            TopAppBar(
-                title = {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                        modifier = Modifier.padding(vertical = 4.dp)
+            Surface(
+                color = MaterialTheme.colorScheme.primary,
+                shadowElevation = 4.dp
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    // --- LINHA 1 (PRINCIPAL): Nome do App com Ícone do Mascote e Engrenagem ---
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
+                            if (currentScreen != "home") {
+                                IconButton(
+                                    onClick = { viewModel.setScreen("home") },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                        contentDescription = "Voltar para o Início",
+                                        tint = MaterialTheme.colorScheme.onPrimary
+                                    )
+                                }
+                            }
+
                             Image(
                                 painter = painterResource(id = R.drawable.provalino_mascot),
                                 contentDescription = "Mascote Provalino",
                                 modifier = Modifier
-                                    .size(32.dp)
+                                    .size(34.dp)
                                     .clip(CircleShape)
                                     .border(1.5.dp, Color.White, CircleShape),
                                 contentScale = ContentScale.Crop
                             )
+
                             Text(
                                 text = "Provalino AI",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 18.sp,
-                                color = MaterialTheme.colorScheme.onPrimary
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 19.sp,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                maxLines = 1
                             )
                         }
+
+                        // Engrenagem (Painel Dev / Configurações) na linha principal
+                        val isAdmin = currentUser?.email == "marcio.moura2708@gmail.com" || currentUser?.email == "admteste@example.com"
+                        if (isAdmin) {
+                            IconButton(
+                                onClick = { viewModel.toggleDeveloperPanel(true) },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Settings,
+                                    contentDescription = "Painel do Desenvolvedor",
+                                    tint = Color(0xFFFFD54F)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // --- LINHA 2 (SECUNDÁRIA - FONTE MENOR): Moedas/Professora à esquerda e Ações (Cadeado, i, X) à direita ---
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        // Identificação do Professor ou Botão de Moedas
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Text("👩‍🏫", fontSize = 11.sp)
+                            Box(
+                                modifier = Modifier
+                                    .background(Color(0xFFFFECB3), RoundedCornerShape(12.dp))
+                                    .border(BorderStroke(1.dp, Color(0xFFFFB300)), RoundedCornerShape(12.dp))
+                                    .clickable { viewModel.openAdModal("REWARDED") }
+                                    .padding(horizontal = 8.dp, vertical = 3.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text("🪙", fontSize = 12.sp)
+                                    Text("$moedas Moedas", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color(0xFF5D4037))
+                                    Text("+", fontWeight = FontWeight.ExtraBold, fontSize = 11.sp, color = Color(0xFF2E7D32))
+                                }
+                            }
+
                             Text(
                                 text = "Prof(a). ${currentUser?.email?.substringBefore("@") ?: "Docente"}",
                                 fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f),
+                                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.92f),
                                 fontWeight = FontWeight.Medium,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
-                    }
-                },
-                actions = {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Box(
-                            modifier = Modifier
-                                .padding(end = 4.dp)
-                                .background(Color(0xFFFFECB3), RoundedCornerShape(16.dp))
-                                .border(BorderStroke(1.dp, Color(0xFFFFB300)), RoundedCornerShape(16.dp))
-                                .clickable { viewModel.openAdModal("REWARDED") }
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text("🪙", fontSize = 14.sp)
-                                Text("$moedas Moedas", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF5D4037))
-                                Text(" + ", fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, color = Color(0xFF2E7D32))
-                            }
-                        }
 
-                        val isAdmin = currentUser?.email == "marcio.moura2708@gmail.com" || currentUser?.email == "admteste@example.com"
-                        if (isAdmin) {
-                            IconButton(onClick = { viewModel.toggleDeveloperPanel(true) }) {
+                        // Ações secundárias: Cadeado (Privacidade), i (Tour), X (Sair)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            IconButton(
+                                onClick = { showPrivacyPolicyDialog = true },
+                                modifier = Modifier.size(32.dp)
+                            ) {
                                 Icon(
-                                    imageVector = Icons.Default.Settings,
-                                    contentDescription = "Painel do Desenvolvedor",
-                                    tint = Color(0xFFFFB300)
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = "Política de Privacidade",
+                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = { viewModel.startTour() },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Info,
+                                    contentDescription = "Guia e Tour do Aplicativo",
+                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(19.dp)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = { viewModel.signOut() },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Sair da conta",
+                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(19.dp)
                                 )
                             }
                         }
-
-                        IconButton(onClick = { showPrivacyPolicyDialog = true }) {
-                            Icon(
-                                imageVector = Icons.Default.Lock,
-                                contentDescription = "Política de Privacidade",
-                                tint = MaterialTheme.colorScheme.onPrimary
-                            )
-                        }
-
-                        IconButton(onClick = { viewModel.startTour() }) {
-                            Icon(
-                                imageVector = Icons.Default.Info,
-                                contentDescription = "Guia e Tour do Aplicativo",
-                                tint = MaterialTheme.colorScheme.onPrimary
-                            )
-                        }
-
-                        IconButton(onClick = { viewModel.signOut() }) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Sair da conta",
-                                tint = MaterialTheme.colorScheme.onPrimary
-                            )
-                        }
                     }
-                },
-                navigationIcon = {
-                    if (currentScreen != "home") {
-                        IconButton(onClick = { viewModel.setScreen("home") }) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Voltar para o Início",
-                                tint = MaterialTheme.colorScheme.onPrimary
-                            )
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary
-                )
-            )
+                }
+            }
         },
         bottomBar = {
             NavigationBar(
@@ -481,6 +512,81 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
                 viewModel = viewModel,
                 currentUserEmail = currentUser?.email ?: "",
                 onClose = { viewModel.toggleDeveloperPanel(false) }
+            )
+        }
+
+        if (offlineNoQuestionsState != null) {
+            val state = offlineNoQuestionsState!!
+            AlertDialog(
+                onDismissRequest = { viewModel.dismissOfflineDialogAndRefund() },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("📡 ", fontSize = 22.sp)
+                        Text("Sem Conexão / Questões Não Encontradas", fontWeight = FontWeight.Bold, color = Color(0xFFD32F2F), fontSize = 16.sp)
+                    }
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            text = "Não encontramos questões salvas no banco de dados local para o assunto:\n\"${state.subject}\".",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF1565C0)
+                        )
+                        Text(
+                            text = "É necessária uma conexão ativa com a internet para que o Provalino AI crie esta prova com o assunto solicitado.",
+                            fontSize = 13.sp,
+                            color = Color(0xFF333333)
+                        )
+                        val apiKeyConfigured = com.aistudio.provalino.teacher.abcxyz.BuildConfig.GEMINI_API_KEY.isNotEmpty() && com.aistudio.provalino.teacher.abcxyz.BuildConfig.GEMINI_API_KEY != "MY_GEMINI_API_KEY"
+                        if (!apiKeyConfigured) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFFFFEBEE), RoundedCornerShape(8.dp))
+                                    .padding(10.dp)
+                            ) {
+                                Text(
+                                    text = "🔑 Nota: A chave 'GEMINI_API_KEY' precisa ser informada no painel de Segredos (Secrets) do AI Studio para que as requisições à IA sejam concluídas.",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFC62828)
+                                )
+                            }
+                        }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFFFFF3E0), RoundedCornerShape(8.dp))
+                                .padding(10.dp)
+                        ) {
+                            Text(
+                                text = if (!state.isRetry)
+                                    "🪙 Se você desistir, suas 2 moedas serão reembolsadas imediatamente. Você também pode conectar à internet e tentar novamente sem custo adicional."
+                                else
+                                    "🔄 Tentativa realizada sem custo adicional de moedas.",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFFE65100)
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = { viewModel.retryOfflineGeneration() },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5))
+                    ) {
+                        Text("🔄 Tentar Novamente", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    OutlinedButton(
+                        onClick = { viewModel.dismissOfflineDialogAndRefund() }
+                    ) {
+                        Text("❌ Desistir e Reembolsar", color = Color(0xFFD32F2F))
+                    }
+                }
             )
         }
 
@@ -671,11 +777,21 @@ fun ProvalinoMascotProgressWidget(
         label = "progress_anim"
     )
 
+    // Estimativa de tempo economizado: ~15 minutos por questão adaptada manualmente
+    val minutesSaved = completedCount * 15
+    val hoursSavedText = if (minutesSaved >= 60) {
+        val h = minutesSaved / 60
+        val m = minutesSaved % 60
+        if (m == 0) "${h}h" else "${h}h ${m}min"
+    } else {
+        "${minutesSaved} min"
+    }
+
     val message = when {
-        completedCount == 0 -> "👋 Olá! Sou a Coruja Provalino. Vamos criar sua primeira atividade adaptada?"
-        completedCount in 1..3 -> "🌱 Ótimo progresso! Você já possui $completedCount atividade(s) adaptada(s). Continue assim!"
-        completedCount in 4..7 -> "🌟 Incrível! $completedCount atividades prontas para seus alunos no banco!"
-        else -> "🏆 Sensacional, Mestre! $completedCount atividades adaptadas com sucesso! 🦉✨"
+        completedCount == 0 -> "👋 Olá, Professor(a)! Crie sua primeira prova em segundos e ganhe até 3 horas livres por semana!"
+        completedCount in 1..3 -> "⚡ Você já economizou ~$hoursSavedText de trabalho manual! Adeus noites formatando avaliações!"
+        completedCount in 4..9 -> "🔥 Incrível! ~$hoursSavedText poupados com IA! Mais tempo para você e inclusão real para seus alunos."
+        else -> "🏆 Sensacional! Você já economizou mais de $hoursSavedText de planejamento com o Provalino! Sua rotina docente agradece! 🦉✨"
     }
 
     Card(
@@ -772,7 +888,7 @@ fun ProvalinoMascotProgressWidget(
                 }
 
                 LinearProgressIndicator(
-                    progress = animatedProgress,
+                    progress = { animatedProgress },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(10.dp)
@@ -1094,8 +1210,10 @@ fun AdBannerView(
 fun ProfileSelectorRow(selected: String, onSelected: (String) -> Unit) {
     val profiles = listOf(
         Triple("REGULAR", "Padrão", "Gera uma questão adaptada padrão para Educação Infantil e Ensino Fundamental."),
-        Triple("TEA", "Autismo (TEA) 🧩", "Linguagem direta, literal, rotina visual com emojis e suporte de previsão."),
-        Triple("TDAH", "TDAH ⚡", "Comandos em DESTAQUE, tópicos numerados curtos e estimulação focada."),
+        Triple("TEA", "Autismo (TEA) 🧩", "Linguagem direta, literal, rotina visual com pictogramas universais/emojis e suporte de previsão."),
+        Triple("SINDROME_DOWN", "Síndrome de Down 💛", "Enunciados curtos, pictogramas visuais universais e no máximo 2 a 3 alternativas."),
+        Triple("DEF_INTELECTUAL", "Def. Intelectual 🧠", "Conceitos concretos, apoio visual reforçado e foco em questões objetivas."),
+        Triple("TDAH", "TDAH ⚡", "Comandos em DESTAQUE, tópicos curtos e estimulação focada sem textos longos."),
         Triple("DISLEXIA", "Dislexia 📖", "Frases na ordem direta, vocabulário simplificado e alto contraste."),
         Triple("SUPORTE_COGNITIVO", "Apoio Cognitivo 🌸", "Conceitos concretos, apoio visual e no máximo 3 alternativas claras (DUA)."),
         Triple("ACESSIBILIDADE_VISUAL", "Acess. Visual 👁️", "Descrições táteis e auditivas ricas para leitor de tela ou ampliação."),
@@ -1333,17 +1451,8 @@ fun QuestoesScreen(
                             }
 
                             if (q.pictogramasSuporte.isNotBlank()) {
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Row(
-                                    modifier = Modifier
-                                        .background(Color(0xFFE0F7FA), RoundedCornerShape(8.dp))
-                                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Text("🎨 Pictogramas DUA / Símbolos:", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF006064))
-                                    Text(q.pictogramasSuporte, fontSize = 14.sp)
-                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                PictogramSupportRow(rawPictogramText = q.pictogramasSuporte)
                             }
 
                             Spacer(modifier = Modifier.height(8.dp))
@@ -1590,36 +1699,33 @@ fun ProvasScreen(
     ) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(
-                            text = "📝 Minhas Provas Geradas",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
-                            color = Color(0xFF333333)
-                        )
-                        Text(
-                            text = "Provas completas por aluno e matéria",
-                            fontSize = 12.sp,
-                            color = Color(0xFF666666)
-                        )
-                    }
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "📝 Minhas Provas Geradas",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = Color(0xFF333333)
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "Provas completas por aluno e matéria",
+                        fontSize = 12.sp,
+                        color = Color(0xFF666666)
+                    )
+                }
 
-                    Button(
-                        onClick = { viewModel.setScreen("nova_prova") },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5)),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Add, contentDescription = "Nova Prova", modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Criar Prova", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        }
-                    }
+                Button(
+                    onClick = { viewModel.setScreen("nova_prova") },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("btn_criar_prova_header")
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Nova Prova", modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Criar Nova Prova", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
 
                 // Campo de Busca
@@ -2050,6 +2156,9 @@ fun DetalhesProvaScreen(
     var detailTab by remember { mutableIntStateOf(0) }
     var loadedQuestoes by remember { mutableStateOf<List<Questao>>(emptyList()) }
     var nomeEscola by remember { mutableStateOf("Escola Municipal / Estadual Provalino") }
+    var showBancoDialog by remember { mutableStateOf(false) }
+    val dbQuestoes by viewModel.questoes.collectAsState()
+    var selectedBancoQuestao by remember { mutableStateOf<Questao?>(null) }
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
@@ -2062,39 +2171,49 @@ fun DetalhesProvaScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize().background(Color(0xFFF7F9FC))) {
-        // Top Header
+        // Top Header - Compacto e elegante para focar na prova
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(12.dp),
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
                         text = "📝 ${prova.titulo}",
                         fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
+                        fontSize = 13.sp,
                         color = Color(0xFF1E88E5),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Button(
                         onClick = onVoltar,
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF78909C)),
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(6.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.height(30.dp)
                     ) {
-                        Text("Voltar", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("Voltar", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
                 }
                 OutlinedTextField(
                     value = nomeEscola,
                     onValueChange = { nomeEscola = it },
-                    label = { Text("Nome da Escola (para cabeçalho)") },
+                    label = { Text("Nome da Escola (cabeçalho da prova)", fontSize = 11.sp) },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp),
-                    singleLine = true
+                    shape = RoundedCornerShape(6.dp),
+                    singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
                 )
             }
         }
@@ -2135,7 +2254,7 @@ fun DetalhesProvaScreen(
                 0 -> { // --- VISUALIZAR E EXPORTAR PDF ---
                     item {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            // Export Buttons
+                            // Action Buttons: Imprimir, Compartilhar e Copiar
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Button(
                                     onClick = {
@@ -2149,13 +2268,31 @@ fun DetalhesProvaScreen(
                                         val printAdapter = webView.createPrintDocumentAdapter(jobName)
                                         printManager.print(jobName, printAdapter, PrintAttributes.Builder().setMediaSize(PrintAttributes.MediaSize.ISO_A4).build())
                                     },
-                                    modifier = Modifier.weight(1f).height(50.dp),
-                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.weight(1f).height(48.dp),
+                                    shape = RoundedCornerShape(10.dp),
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F))
                                 ) {
-                                    Icon(Icons.Default.Share, contentDescription = "PDF", tint = Color.White)
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("🖨️ Exportar PDF", fontWeight = FontWeight.Bold, color = Color.White)
+                                    Text("🖨️ Imprimir", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+                                }
+
+                                Button(
+                                    onClick = {
+                                        val text = buildPrintableExamText(prova, associatedTurma, loadedQuestoes, nomeEscola)
+                                        val sendIntent = android.content.Intent().apply {
+                                            action = android.content.Intent.ACTION_SEND
+                                            putExtra(android.content.Intent.EXTRA_TEXT, text)
+                                            type = "text/plain"
+                                        }
+                                        val shareIntent = android.content.Intent.createChooser(sendIntent, "Compartilhar Prova Adaptada")
+                                        context.startActivity(shareIntent)
+                                    },
+                                    modifier = Modifier.weight(1.1f).height(48.dp),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0288D1))
+                                ) {
+                                    Icon(Icons.Default.Share, contentDescription = "Compartilhar", tint = Color.White, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Compartilhar", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
                                 }
 
                                 Button(
@@ -2164,12 +2301,23 @@ fun DetalhesProvaScreen(
                                         clipboardManager.setText(AnnotatedString(text))
                                         Toast.makeText(context, "Prova copiada para a área de transferência!", Toast.LENGTH_LONG).show()
                                     },
-                                    modifier = Modifier.weight(1f).height(50.dp),
-                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.weight(0.9f).height(48.dp),
+                                    shape = RoundedCornerShape(10.dp),
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))
                                 ) {
-                                    Text("📋 Copiar Texto", fontWeight = FontWeight.Bold)
+                                    Text("📋 Copiar", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                 }
+                            }
+
+                            Button(
+                                onClick = { showBancoDialog = true },
+                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8E24AA))
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = "Incluir", tint = Color.White)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("➕ Incluir Questões do Banco de Dados", fontWeight = FontWeight.Bold, color = Color.White)
                             }
 
                             // Visual Preview Sheet (A4 Paper Style)
@@ -2195,11 +2343,10 @@ fun DetalhesProvaScreen(
 
                                     HorizontalDivider(color = Color.DarkGray, thickness = 1.5.dp)
 
-                                    // Info box (No student name line as requested!)
+                                    // Info box (No student name line and no instructions as requested!)
                                     Column(modifier = Modifier.fillMaxWidth().background(Color(0xFFFAFAFA), RoundedCornerShape(8.dp)).padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                         Text(text = "Data: ____/____/_______  |  Turma: ${associatedTurma?.nome ?: "Geral"}", fontSize = 12.sp, fontWeight = FontWeight.Medium)
                                         Text(text = "Matéria: ${associatedTurma?.materia ?: "Geral"}", fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                                        Text(text = "Instruções: ${prova.descricao}", fontSize = 11.sp, color = Color(0xFF555555), fontStyle = FontStyle.Italic)
                                     }
 
                                     Spacer(modifier = Modifier.height(4.dp))
@@ -2215,8 +2362,9 @@ fun DetalhesProvaScreen(
                                                 fontSize = 13.sp,
                                                 color = Color(0xFF111111)
                                             )
-                                            if (q.pictogramasSuporte.isNotBlank()) {
-                                                Text(text = "Suporte Visual: ${q.pictogramasSuporte}", fontSize = 12.sp, color = Color(0xFF00796B))
+                                            val cleanSupp = PictogramInjector.cleanSupportText(q.pictogramasSuporte)
+                                            if (cleanSupp.isNotBlank()) {
+                                                Text(text = "🎨 Suporte Visual: $cleanSupp", fontSize = 12.sp, color = Color(0xFF00796B), fontWeight = FontWeight.SemiBold)
                                             }
                                             if (q.tipo == "MULTIPLE_CHOICE") {
                                                 if (q.opcaoA.isNotBlank()) Text(text = "   A) ${formatOptionText(q.opcaoA, "A")}", fontSize = 12.sp)
@@ -2268,6 +2416,123 @@ fun DetalhesProvaScreen(
             }
         }
     }
+
+    if (showBancoDialog) {
+        val currentIds = prova.questoesIds.split(",").mapNotNull { it.toIntOrNull() }
+        val filteredDbQuestoes = dbQuestoes.filter { q -> !currentIds.contains(q.id) }
+
+        AlertDialog(
+            onDismissRequest = { 
+                showBancoDialog = false
+                selectedBancoQuestao = null
+            },
+            title = {
+                Text("📚 Banco de Questões Salvas", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF8E24AA))
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(350.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (selectedBancoQuestao != null) {
+                        val q = selectedBancoQuestao!!
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFF3E5F5)),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("Visualização Completa da Questão:", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF6A1B9A))
+                                Text(q.enunciado, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF333333))
+                                if (q.tipo == "MULTIPLE_CHOICE") {
+                                    if (q.opcaoA.isNotBlank()) Text("A) ${q.opcaoA}", fontSize = 12.sp)
+                                    if (q.opcaoB.isNotBlank()) Text("B) ${q.opcaoB}", fontSize = 12.sp)
+                                    if (q.opcaoC.isNotBlank()) Text("C) ${q.opcaoC}", fontSize = 12.sp)
+                                    if (q.opcaoD.isNotBlank()) Text("D) ${q.opcaoD}", fontSize = 12.sp)
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Button(
+                                        onClick = { selectedBancoQuestao = null },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF78909C)),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text("Voltar", fontWeight = FontWeight.Bold)
+                                    }
+                                    Button(
+                                        onClick = {
+                                            viewModel.appendQuestaoToProva(prova.id, q.id)
+                                            coroutineScope.launch {
+                                                loadedQuestoes = viewModel.getQuestoesForProva(prova)
+                                            }
+                                            Toast.makeText(context, "Questão incluída com sucesso na prova!", Toast.LENGTH_SHORT).show()
+                                            selectedBancoQuestao = null
+                                            showBancoDialog = false
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text("Incluir", fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        if (filteredDbQuestoes.isEmpty()) {
+                            Text("Nenhuma questão nova disponível no banco de dados.", fontSize = 13.sp, color = Color(0xFF666666))
+                        } else {
+                            Text("Selecione uma questão para visualizar e incluir:", fontSize = 12.sp, color = Color(0xFF666666))
+                            filteredDbQuestoes.forEach { q ->
+                                val summary = if (q.enunciado.length > 45) q.enunciado.take(45) + "..." else q.enunciado
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { selectedBancoQuestao = q },
+                                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                                    shape = RoundedCornerShape(8.dp),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "📌 $summary",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.sp,
+                                                color = Color(0xFF333333),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = "Matéria: ${q.assunto.ifBlank { "Geral" }} | Série: ${q.anoEscolar.ifBlank { "Geral" }}",
+                                                fontSize = 10.sp,
+                                                color = Color(0xFF777777)
+                                            )
+                                        }
+                                        Text(">", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF8E24AA))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showBancoDialog = false
+                    selectedBancoQuestao = null
+                }) {
+                    Text("Fechar")
+                }
+            }
+        )
+    }
 }
 
 fun formatOptionText(raw: String, prefixLetter: String): String {
@@ -2298,13 +2563,16 @@ fun buildHtmlExamContent(prova: Prova, turma: Turma?, questoes: List<Questao>, e
     sb.append(".footer { margin-top: 40px; text-align: center; font-size: 10px; color: #777; font-style: italic; border-top: 1px solid #ddd; padding-top: 10px; }")
     sb.append("</style></head><body>")
     sb.append("<div class='header'><div><div class='escola'>" + escola.uppercase() + "</div><div>AVALIAÇÃO ADAPTADA & INCLUSIVA</div></div><div class='logo'>🦉 PROVALINO</div></div>")
-    sb.append("<div class='info'>Data: ____/____/_______ &nbsp;|&nbsp; Turma: " + (turma?.nome ?: "Geral") + " &nbsp;|&nbsp; Matéria: " + (turma?.materia ?: "Geral") + "<br>Instruções: " + prova.descricao + "</div>")
+    sb.append("<div class='info'>Data: ____/____/_______ &nbsp;|&nbsp; Turma: " + (turma?.nome ?: "Geral") + " &nbsp;|&nbsp; Matéria: " + (turma?.materia ?: "Geral") + "</div>")
     sb.append("<div class='titulo'>" + prova.titulo + "</div>")
     questoes.forEachIndexed { index, q ->
         sb.append("<div class='questao'>")
         sb.append("<b>Questão " + (index + 1) + ":</b> " + q.enunciado + "<br>")
-        if (q.pictogramasSuporte.isNotBlank()) {
-            sb.append("<span style='color: #00796B; font-size: 12px;'>Suporte Visual: " + q.pictogramasSuporte + "</span><br>")
+        val cleanSupport = PictogramInjector.cleanSupportText(q.pictogramasSuporte)
+        if (cleanSupport.isNotBlank()) {
+            sb.append("<div style='display: inline-block; background-color: #F0FDF4; border: 1px solid #86EFAC; padding: 4px 8px; border-radius: 6px; margin: 4px 0 8px 0; font-size: 12px; color: #166534; font-weight: bold;'>")
+            sb.append("🎨 Suporte Visual: " + cleanSupport)
+            sb.append("</div><br>")
         }
         if (q.tipo == "MULTIPLE_CHOICE") {
             if (q.opcaoA.isNotBlank()) sb.append("&nbsp;&nbsp;A) " + formatOptionText(q.opcaoA, "A") + "<br>")
@@ -2331,13 +2599,11 @@ fun buildPrintableExamText(prova: Prova, turma: Turma?, questoes: List<Questao>,
     sb.append("MATÉRIA: " + (turma?.materia ?: "Geral") + "\n")
     sb.append("===================================================\n\n")
     sb.append("                 " + prova.titulo.uppercase() + "\n\n")
-    if (prova.descricao.isNotBlank()) {
-        sb.append("Instruções: " + prova.descricao + "\n\n")
-    }
     questoes.forEachIndexed { index, q ->
         sb.append("QUESTÃO " + (index + 1) + ": " + q.enunciado + "\n")
-        if (q.pictogramasSuporte.isNotBlank()) {
-            sb.append("Suporte Visual: " + q.pictogramasSuporte + "\n")
+        val cleanSupport = PictogramInjector.cleanSupportText(q.pictogramasSuporte)
+        if (cleanSupport.isNotBlank()) {
+            sb.append("Suporte Visual: " + cleanSupport + "\n")
         }
         if (q.tipo == "MULTIPLE_CHOICE") {
             sb.append("  A) " + formatOptionText(q.opcaoA, "A") + "\n")
@@ -2635,6 +2901,7 @@ fun CarteirasScreen(
 
     val necessidadesList = listOf(
         "TEA" to "Transtorno do Espectro Autista (TEA) 🧩",
+        "SINDROME_DOWN" to "Síndrome de Down 💛",
         "TDAH" to "Transtorno do Déficit de Atenção com Hiperatividade (TDAH) ⚡",
         "DISLEXIA" to "Transtorno Específico da Aprendizagem (Dislexia) 📖",
         "DEF_INTELECTUAL" to "Deficiência Intelectual 🧠",
@@ -2969,7 +3236,7 @@ fun CarteirasScreen(
                             label = { Text("Selecione a Série / Ano") },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedSerie) },
                             modifier = Modifier
-                                .menuAnchor()
+                                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
                                 .fillMaxWidth(),
                             shape = RoundedCornerShape(10.dp)
                         )
@@ -3138,7 +3405,6 @@ fun CarteirasScreen(
                                     .background(if (isSel) Color(0xFF9C27B0) else Color(0xFFF3E5F5), RoundedCornerShape(8.dp))
                                     .clickable {
                                         selectedMateria = mat
-                                        selectedAssuntoBNCC = bnccSubjectsMap[mat]?.firstOrNull() ?: ""
                                     }
                                     .padding(horizontal = 10.dp, vertical = 6.dp)
                             ) {
@@ -3147,39 +3413,18 @@ fun CarteirasScreen(
                         }
                     }
 
-                    Text("Assunto Predefinido (BNCC):", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF333333))
-                    val topicos = bnccSubjectsMap[selectedMateria] ?: emptyList()
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        topicos.forEach { topico ->
-                            val isSel = selectedAssuntoBNCC == topico
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(if (isSel) Color(0xFFEDE7F6) else Color.Transparent, RoundedCornerShape(6.dp))
-                                    .clickable { selectedAssuntoBNCC = topico }
-                                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                RadioButton(selected = isSel, onClick = { selectedAssuntoBNCC = topico })
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(topico, fontSize = 12.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal)
-                            }
-                        }
-                    }
-
                     OutlinedTextField(
                         value = customAssunto,
                         onValueChange = { customAssunto = it },
-                        label = { Text("Ou detalhe o assunto específico (Opcional)") },
+                        label = { Text("Descreva o Assunto/Conteúdo da Prova") },
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp),
-                        singleLine = true
+                        shape = RoundedCornerShape(8.dp)
                     )
 
                     OutlinedTextField(
                         value = qtdQuestoes,
                         onValueChange = { qtdQuestoes = it },
-                        label = { Text("Qtd Questões") },
+                        label = { Text("Qtd Questões (1 a 20)") },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(8.dp),
                         singleLine = true
@@ -3189,8 +3434,16 @@ fun CarteirasScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        val finalAssunto = if (customAssunto.isNotBlank()) "$selectedMateria ($selectedAssuntoBNCC - $customAssunto)" else "$selectedMateria ($selectedAssuntoBNCC)"
                         val count = qtdQuestoes.toIntOrNull() ?: 3
+                        if (count !in 1..20) {
+                            Toast.makeText(context, "O número de questões deve ser entre 1 e 20.", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        if (customAssunto.isBlank()) {
+                            Toast.makeText(context, "Por favor, descreva o assunto da prova.", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        val finalAssunto = "$selectedMateria - $customAssunto"
                         viewModel.generateAndCreateProvaForAluno(
                             aluno = aluno,
                             subject = finalAssunto,

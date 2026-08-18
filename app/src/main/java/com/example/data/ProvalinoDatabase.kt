@@ -97,6 +97,9 @@ interface ProvalinoDao {
     @Query("SELECT * FROM questoes WHERE teacherId = :teacherId AND (assunto LIKE :query OR enunciado LIKE :query)")
     fun searchQuestoes(teacherId: String, query: String): Flow<List<Questao>>
 
+    @Query("SELECT * FROM questoes WHERE (teacherId = :teacherId OR teacherId = '') AND (assunto LIKE '%' || :subject || '%' OR :subject LIKE '%' || assunto || '%' OR enunciado LIKE '%' || :subject || '%') ORDER BY id DESC")
+    suspend fun getMatchingQuestionsForFallback(teacherId: String, subject: String): List<Questao>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertQuestao(questao: Questao): Long
 
@@ -158,7 +161,7 @@ abstract class ProvalinoDatabase : RoomDatabase() {
                     ProvalinoDatabase::class.java,
                     "provalino_database"
                 )
-                .fallbackToDestructiveMigration()
+                .fallbackToDestructiveMigration(true)
                 .build()
                 INSTANCE = instance
                 instance

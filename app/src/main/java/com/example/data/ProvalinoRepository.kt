@@ -43,28 +43,47 @@ class ProvalinoRepository(private val dao: ProvalinoDao) {
         profile: String = "REGULAR",
         teacherId: String = ""
     ): List<Questao> {
-        val aiQuestions = GeminiClient.generateQuestions(subject, grade, count, type, profile)
-        val savedQuestions = mutableListOf<Questao>()
-        for (aiQ in aiQuestions) {
-            val dbQuestao = Questao(
-                enunciado = aiQ.enunciado,
-                tipo = aiQ.tipo,
-                opcaoA = aiQ.opcaoA,
-                opcaoB = aiQ.opcaoB,
-                opcaoC = aiQ.opcaoC,
-                opcaoD = aiQ.opcaoD,
-                respostaCorreta = aiQ.respostaCorreta,
-                assunto = aiQ.assunto,
-                anoEscolar = aiQ.anoEscolar,
-                perfilAdaptacao = profile,
-                codigoBNCC = aiQ.codigoBNCC,
-                pictogramasSuporte = aiQ.pictogramasSuporte,
-                teacherId = teacherId
-            )
-            val generatedId = dao.insertQuestao(dbQuestao)
-            savedQuestions.add(dbQuestao.copy(id = generatedId.toInt()))
+        val aiQuestions = try {
+            GeminiClient.generateQuestions(subject, grade, count, type, profile)
+        } catch (e: Exception) {
+            emptyList()
         }
-        return savedQuestions
+
+        if (aiQuestions.isNotEmpty()) {
+            val savedQuestions = mutableListOf<Questao>()
+            for (aiQ in aiQuestions) {
+                val dbQuestao = Questao(
+                    enunciado = aiQ.enunciado,
+                    tipo = aiQ.tipo,
+                    opcaoA = aiQ.opcaoA,
+                    opcaoB = aiQ.opcaoB,
+                    opcaoC = aiQ.opcaoC,
+                    opcaoD = aiQ.opcaoD,
+                    respostaCorreta = aiQ.respostaCorreta,
+                    assunto = aiQ.assunto.ifBlank { subject },
+                    anoEscolar = aiQ.anoEscolar.ifBlank { grade },
+                    perfilAdaptacao = profile,
+                    codigoBNCC = aiQ.codigoBNCC,
+                    pictogramasSuporte = aiQ.pictogramasSuporte,
+                    teacherId = teacherId
+                )
+                val generatedId = dao.insertQuestao(dbQuestao)
+                savedQuestions.add(dbQuestao.copy(id = generatedId.toInt()))
+            }
+            return savedQuestions
+        } else {
+            // Fallback: Busca SOMENTE questões do banco de dados local que coincidam com o assunto/matéria
+            val cleanSubject = subject.substringAfter("-").trim().ifBlank { subject }
+            val localMatches = dao.getMatchingQuestionsForFallback(teacherId, cleanSubject)
+                .filter { q ->
+                    // Filtra por perfil/série se relevante
+                    q.perfilAdaptacao.equals(profile, ignoreCase = true) || q.perfilAdaptacao.equals("REGULAR", ignoreCase = true)
+                }
+            if (localMatches.isNotEmpty()) {
+                return localMatches.take(count)
+            }
+            return emptyList()
+        }
     }
 
     /**

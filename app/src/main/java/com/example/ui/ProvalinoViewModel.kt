@@ -25,7 +25,51 @@ import com.example.data.AppUpdateState
 import com.example.data.AppVersionChecker
 import com.example.data.AnalyticsRepository
 
+data class OfflineNoQuestionsDialogState(
+    val subject: String,
+    val grade: String,
+    val count: Int,
+    val type: String = "ANY",
+    val profile: String = "REGULAR",
+    val aluno: AlunoNecessidadeEspecial? = null,
+    val isRetry: Boolean = false
+)
+
 class ProvalinoViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val _offlineNoQuestionsState = MutableStateFlow<OfflineNoQuestionsDialogState?>(null)
+    val offlineNoQuestionsState: StateFlow<OfflineNoQuestionsDialogState?> = _offlineNoQuestionsState.asStateFlow()
+
+    fun dismissOfflineDialogAndRefund() {
+        val state = _offlineNoQuestionsState.value
+        if (state != null && !state.isRetry) {
+            adicionarMoedas(2) // Reembolso automático de 2 moedas
+        }
+        _offlineNoQuestionsState.value = null
+    }
+
+    fun retryOfflineGeneration() {
+        val state = _offlineNoQuestionsState.value ?: return
+        _offlineNoQuestionsState.value = null
+        if (state.aluno != null) {
+            generateAndCreateProvaForAluno(
+                aluno = state.aluno,
+                subject = state.subject,
+                grade = state.grade,
+                count = state.count,
+                skipCoinDeduction = true
+            )
+        } else {
+            generateQuestionsWithAI(
+                subject = state.subject,
+                grade = state.grade,
+                count = state.count,
+                type = state.type,
+                profile = state.profile,
+                skipCoinDeduction = true
+            )
+        }
+    }
 
     private val repository: ProvalinoRepository
 
@@ -109,6 +153,24 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
                 AnalyticsRepository.logLoginSuccess("google")
             } else {
                 _authError.value = result.exceptionOrNull()?.localizedMessage ?: "Erro no login com Google."
+            }
+        }
+    }
+
+    fun sendPasswordResetEmail(email: String, onResult: (Boolean, String) -> Unit) {
+        if (email.isBlank()) {
+            onResult(false, "Por favor, digite seu e-mail cadastrado.")
+            return
+        }
+        viewModelScope.launch {
+            _authLoading.value = true
+            val result = authRepository.sendPasswordResetEmail(email)
+            _authLoading.value = false
+            if (result.isSuccess) {
+                onResult(true, "E-mail de redefinição enviado com sucesso! Verifique sua caixa de entrada e spam.")
+            } else {
+                val err = result.exceptionOrNull()?.localizedMessage ?: "Falha ao enviar e-mail de redefinição."
+                onResult(false, err)
             }
         }
     }
@@ -391,9 +453,10 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
         grade: String,
         count: Int,
         type: String,
-        profile: String = "REGULAR"
+        profile: String = "REGULAR",
+        skipCoinDeduction: Boolean = false
     ) {
-        if (!deduzirMoedas(2)) return // Stops if insufficient coins and opens Ad modal
+        if (!skipCoinDeduction && !deduzirMoedas(2)) return // Stops if insufficient coins and opens Ad modal
         viewModelScope.launch {
             _isGenerating.value = true
             _aiError.value = null
@@ -417,12 +480,26 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
                     _activeProvaForGrades.value = createdProva
                     _currentScreen.value = "provas"
                 } else {
-                    adicionarMoedas(2) // Refund moedas
-                    _aiError.value = "Sem conexão com a internet. É necessária conexão ativa com a internet para comunicar com o Provalino AI e construir a prova."
+                    _offlineNoQuestionsState.value = OfflineNoQuestionsDialogState(
+                        subject = subject,
+                        grade = grade,
+                        count = count,
+                        type = type,
+                        profile = profile,
+                        aluno = null,
+                        isRetry = skipCoinDeduction
+                    )
                 }
             } catch (e: Exception) {
-                adicionarMoedas(2) // Refund moedas
-                _aiError.value = "Sem conexão com a internet. É necessária conexão ativa com a internet para comunicar com o Provalino AI e construir a prova."
+                _offlineNoQuestionsState.value = OfflineNoQuestionsDialogState(
+                    subject = subject,
+                    grade = grade,
+                    count = count,
+                    type = type,
+                    profile = profile,
+                    aluno = null,
+                    isRetry = skipCoinDeduction
+                )
             } finally {
                 _isGenerating.value = false
             }
@@ -435,9 +512,10 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
         subject: String,
         grade: String,
         count: Int,
-        onComplete: (Prova) -> Unit = {}
+        onComplete: (Prova) -> Unit = {},
+        skipCoinDeduction: Boolean = false
     ) {
-        if (!deduzirMoedas(2)) return
+        if (!skipCoinDeduction && !deduzirMoedas(2)) return
         viewModelScope.launch {
             _isGenerating.value = true
             _aiError.value = null
@@ -469,12 +547,26 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
                     _currentScreen.value = "provas"
                     onComplete(createdProva)
                 } else {
-                    adicionarMoedas(2) // Refund moedas
-                    _aiError.value = "Sem conexão com a internet. É necessária conexão ativa com a internet para comunicar com o Provalino AI e construir a prova."
+                    _offlineNoQuestionsState.value = OfflineNoQuestionsDialogState(
+                        subject = subject,
+                        grade = grade,
+                        count = count,
+                        type = "ANY",
+                        profile = aluno.necessidade,
+                        aluno = aluno,
+                        isRetry = skipCoinDeduction
+                    )
                 }
             } catch (e: Exception) {
-                adicionarMoedas(2) // Refund moedas
-                _aiError.value = "Sem conexão com a internet. É necessária conexão ativa com a internet para comunicar com o Provalino AI e construir a prova."
+                _offlineNoQuestionsState.value = OfflineNoQuestionsDialogState(
+                    subject = subject,
+                    grade = grade,
+                    count = count,
+                    type = "ANY",
+                    profile = aluno.necessidade,
+                    aluno = aluno,
+                    isRetry = skipCoinDeduction
+                )
             } finally {
                 _isGenerating.value = false
             }
@@ -692,6 +784,22 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
             // Refresh grades
             repository.getNotasForProva(provaId).collect {
                 _gradesForActiveProva.value = it
+            }
+        }
+    }
+
+    fun appendQuestaoToProva(provaId: Int, questaoId: Int) {
+        viewModelScope.launch {
+            val prova = repository.getProvaById(provaId) ?: return@launch
+            val ids = prova.questoesIds.split(",").mapNotNull { it.toIntOrNull() }.toMutableList()
+            if (!ids.contains(questaoId)) {
+                ids.add(questaoId)
+                val updatedIdsString = ids.joinToString(",")
+                val updatedProva = prova.copy(questoesIds = updatedIdsString)
+                repository.insertProva(updatedProva)
+                if (_activeProvaForGrades.value?.id == provaId) {
+                    _activeProvaForGrades.value = updatedProva
+                }
             }
         }
     }

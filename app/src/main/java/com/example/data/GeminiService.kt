@@ -12,7 +12,9 @@ import okhttp3.Response
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import retrofit2.http.Body
+import retrofit2.http.Header
 import retrofit2.http.POST
+import retrofit2.http.Path
 import retrofit2.http.Query
 import com.squareup.moshi.Types
 import java.util.concurrent.TimeUnit
@@ -23,45 +25,45 @@ import kotlinx.coroutines.withContext
 
 @JsonClass(generateAdapter = true)
 data class GeminiPart(
-    @Json(name = "text") val text: String? = null
+    @param:Json(name = "text") val text: String? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class GeminiContent(
-    @Json(name = "parts") val parts: List<GeminiPart>
+    @param:Json(name = "parts") val parts: List<GeminiPart>
 )
 
 @JsonClass(generateAdapter = true)
 data class ResponseFormatText(
-    @Json(name = "mimeType") val mimeType: String
+    @param:Json(name = "mimeType") val mimeType: String
 )
 
 @JsonClass(generateAdapter = true)
 data class ResponseFormat(
-    @Json(name = "text") val text: ResponseFormatText? = null
+    @param:Json(name = "text") val text: ResponseFormatText? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class GenerationConfig(
-    @Json(name = "responseFormat") val responseFormat: ResponseFormat? = null,
-    @Json(name = "temperature") val temperature: Double? = null
+    @param:Json(name = "responseFormat") val responseFormat: ResponseFormat? = null,
+    @param:Json(name = "temperature") val temperature: Double? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class GenerateContentRequest(
-    @Json(name = "contents") val contents: List<GeminiContent>,
-    @Json(name = "generationConfig") val generationConfig: GenerationConfig? = null,
-    @Json(name = "systemInstruction") val systemInstruction: GeminiContent? = null
+    @param:Json(name = "contents") val contents: List<GeminiContent>,
+    @param:Json(name = "generationConfig") val generationConfig: GenerationConfig? = null,
+    @param:Json(name = "systemInstruction") val systemInstruction: GeminiContent? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class Candidate(
-    @Json(name = "content") val content: GeminiContent
+    @param:Json(name = "content") val content: GeminiContent
 )
 
 @JsonClass(generateAdapter = true)
 data class GenerateContentResponse(
-    @Json(name = "candidates") val candidates: List<Candidate>? = null
+    @param:Json(name = "candidates") val candidates: List<Candidate>? = null
 )
 
 // --- STRUCTURED OUTPUT OBJECTS ---
@@ -89,11 +91,49 @@ data class AIQuestoesResponse(
 // --- RETROFIT INTERFACE ---
 
 interface GeminiApiService {
-    @POST("v1beta/models/gemini-3.5-flash:generateContent")
+    @POST("v1beta/models/{model}:generateContent")
+    suspend fun generateContentWithModel(
+        @Path("model") model: String,
+        @Query("key") apiKey: String,
+        @Body request: GenerateContentRequest
+    ): GenerateContentResponse
+
+    @POST("v1beta/models/gemini-3.5-flash-lite:generateContent")
     suspend fun generateContent(
         @Query("key") apiKey: String,
         @Body request: GenerateContentRequest
     ): GenerateContentResponse
+}
+
+@JsonClass(generateAdapter = true)
+data class OpenAIChatMessage(
+    @param:Json(name = "role") val role: String,
+    @param:Json(name = "content") val content: String
+)
+
+@JsonClass(generateAdapter = true)
+data class OpenAIChatRequest(
+    @param:Json(name = "model") val model: String,
+    @param:Json(name = "messages") val messages: List<OpenAIChatMessage>,
+    @param:Json(name = "temperature") val temperature: Double = 0.7
+)
+
+@JsonClass(generateAdapter = true)
+data class OpenAIChoice(
+    @param:Json(name = "message") val message: OpenAIChatMessage
+)
+
+@JsonClass(generateAdapter = true)
+data class OpenAIChatResponse(
+    @param:Json(name = "choices") val choices: List<OpenAIChoice>?
+)
+
+interface PollinationApiService {
+    @POST("v1/chat/completions")
+    suspend fun chatCompletions(
+        @Header("Authorization") authHeader: String,
+        @Body request: OpenAIChatRequest
+    ): OpenAIChatResponse
 }
 
 class NetworkDiagnosticInterceptor : Interceptor {
@@ -161,6 +201,58 @@ object GeminiClient {
 
     val service: GeminiApiService = retrofit.create(GeminiApiService::class.java)
 
+    private suspend fun callPollinationsFallback(systemPrompt: String, userPrompt: String): String? = withContext(Dispatchers.IO) {
+        val rawPollinationKey = try {
+            val f = BuildConfig::class.java.getField("POLLINATION_API_KEY")
+            f.get(null) as? String ?: ""
+        } catch (e: Exception) {
+            try {
+                val f2 = BuildConfig::class.java.getField("POLLINATION")
+                f2.get(null) as? String ?: ""
+            } catch (e2: Exception) {
+                ""
+            }
+        }
+        val pollinationKey = if (rawPollinationKey.isNotBlank() && rawPollinationKey != "MY_POLLINATION_API_KEY") {
+            rawPollinationKey
+        } else {
+            "pollination"
+        }
+
+        val authHeader = "Bearer $pollinationKey"
+
+        val pollinationRetrofit = Retrofit.Builder()
+            .baseUrl("https://gen.pollinations.ai/")
+            .client(okHttpClient)
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .build()
+
+        val pollinationService = pollinationRetrofit.create(PollinationApiService::class.java)
+
+        val modelsToTry = listOf("gpt-5.6-luna", "openai-fast", "mistral")
+        for (modelName in modelsToTry) {
+            try {
+                Log.d("ProvalinoPollination", "Invocando fallback Pollinations AI com modelo $modelName")
+                val request = OpenAIChatRequest(
+                    model = modelName,
+                    messages = listOf(
+                        OpenAIChatMessage(role = "system", content = "$systemPrompt\nResponda ESTRITAMENTE em formato JSON válido."),
+                        OpenAIChatMessage(role = "user", content = userPrompt)
+                    ),
+                    temperature = 0.7
+                )
+                val response = pollinationService.chatCompletions(authHeader, request)
+                val content = response.choices?.firstOrNull()?.message?.content
+                if (!content.isNullOrBlank()) {
+                    return@withContext content
+                }
+            } catch (e: Exception) {
+                Log.e("ProvalinoPollination", "Pollinations AI tentativa com modelo $modelName falhou: ${e.message}")
+            }
+        }
+        null
+    }
+
     suspend fun generateQuestions(
         subject: String,
         grade: String,
@@ -176,32 +268,27 @@ object GeminiClient {
         }
 
         val profileInstruction = when (profile) {
-            "TEA" -> """
-                Adapte esta questão sob os princípios do Design Universal para a Aprendizagem (DUA) para suporte ao Transtorno do Espectro Autista (TEA):
-                1. Linguagem literal, clara, estruturada e previsível. Evite metáforas ou duplo sentido.
-                2. Incorpore de 2 a 3 emojis/pictogramas conceituais claros para apoio à compreensão visual (estilo ARASAAC / pictográfico).
-                3. Sequência lógica passo a passo.
-            """.trimIndent()
-            "TDAH" -> """
-                Adapte esta questão sob os princípios do Design Universal para a Aprendizagem (DUA) para suporte atencional (TDAH):
-                1. Destaque termos-chave e comandos principais em DESTAQUE ou maiúsculas para direcionamento do foco.
-                2. Frases curtas, diretas e divididas em tópicos visuais claros.
+            "TEA", "AUTISMO", "DEF_INTELECTUAL", "TDAH", "SUPORTE_COGNITIVO", "SINDROME_DOWN" -> """
+                Você é um especialista em Educação Inclusiva e Neurodiversidade. Sua tarefa é adaptar a avaliação fornecida para uma criança com Deficiência Intelectual (DI) severa, TDAH, Síndrome de Down ou Autismo (alto nível de suporte).
+
+                Diretrizes obrigatórias:
+                1. Elimine textos de contexto longos ou desnecessários. Enunciados devem ter no máximo 1 a 2 frases curtas e objetivas.
+                2. Não utilize questões dissertativas/abertas. Substitua por marcar X, circular, ligar ou completar com palavras de um banco de opções.
+                3. Reduza as alternativas de múltipla escolha para apenas 2 ou 3 opções bem distintas (preencha opcaoA, opcaoB e opcionalmente opcaoC; deixe opcaoD vazia "").
+                4. Inclua indicações claras de onde deve haver suporte visual e pictogramas universais de CAA para crianças autistas (ex: [Pictograma/Imagem: Carro soltando fumaça 🚗💨]). Caso não seja possível uma imagem física, marque o local com o texto descritivo do pictograma acompanhado de emoticons/emojis representativos (ex: 🍎 Maçã, 🚗 Carro, ✏️ Lápis, 🐶 Cachorro, 🌳 Árvore).
+                5. Use fonte limpa e vocabulário simples, direto e literal.
+                Faça os ajustes redacionais para manter a coesão.
             """.trimIndent()
             "DISLEXIA" -> """
                 Adapte esta questão sob os princípios do Design Universal para a Aprendizagem (DUA) para suporte leitor e fonológico (Dislexia):
                 1. Frases na ordem direta (Sujeito + Verbo + Predicado) com vocabulário de fácil processamento.
                 2. Evite construções ambíguas ou palavras com semelhança gráfica complexa.
             """.trimIndent()
-            "SUPORTE_COGNITIVO" -> """
-                Adapte esta questão sob os princípios do Design Universal para a Aprendizagem (DUA) para Apoio Cognitivo e Concreto:
-                1. Enfoque em conceitos concretos, cotidianos e relações tangíveis.
-                2. Se for MULTIPLE_CHOICE, forneça 3 alternativas claras (A, B, C) com distratores bem diferenciados (deixe opcaoD vazia "").
-            """.trimIndent()
-            "ACESSIBILIDADE_VISUAL" -> """
+            "BAIXA_VISAO", "ACESSIBILIDADE_VISUAL" -> """
                 Adapte esta questão sob os princípios do Design Universal para a Aprendizagem (DUA) para Acessibilidade Visual:
                 1. Descrições ricas, texturas, referências táteis e auditivas detalhadas no enunciado.
             """.trimIndent()
-            "ACESSIBILIDADE_LINGUISTICA" -> """
+            "SURDEZ", "ACESSIBILIDADE_LINGUISTICA" -> """
                 Adapte esta questão sob os princípios do Design Universal para a Aprendizagem (DUA) para Acessibilidade Comunicacional:
                 1. Forte suporte pictórico, vocabulário visual e estruturação sintática objetiva.
             """.trimIndent()
@@ -228,6 +315,7 @@ object GeminiClient {
 
             TAREFA PRINCIPAL
             Gere exatamente $count questões pedagógicas sobre o tema $subject, adequadas ao ano escolar $grade, no tipo $typeConstraint, respeitando as instruções de adaptação DUA contidas em $profileInstruction. Cada questão deve ser completa, profunda, pronta para uso em sala de aula, sem erros de digitação e sem ambiguidades.
+            FIDELIDADE E EQUALIZAÇÃO DE ASSUNTOS: Você DEVE seguir estritamente a solicitação exata do professor em $subject. Se houver mais de um assunto especificado (por exemplo, separados por vírgula ou 'e'), você DEVE equalizar rigorosamente a geração, distribuindo a quantidade de questões de forma igualitária entre cada um dos assuntos listados. Nunca utilize questões irrelevantes ou fora do escopo.
 
             REGRAS OBRIGATÓRIAS DE QUALIDADE E DIVERSIDADE
             Regra 1 - DIVERSIFICAÇÃO COGNITIVA: Cada questão deve abordar um subtópico diferente ou um nível diferente da Taxonomia de Bloom. Exemplos de distribuição: primeira questão de Identificação, segunda de Análise ou Comparação, terceira de Aplicação Prática, quarta de Solução de Problemas. Nunca repita o mesmo nível cognitivo sem necessidade.
@@ -279,47 +367,82 @@ object GeminiClient {
             }
         """.trimIndent()
 
-        val systemInstructionText = "Você é o Provalino AI — assistente especialista em Provas Adaptadas com IA, inclusão pedagógica, DUA, AEE e diretrizes do MEC para Educação Infantil e Ensino Fundamental. É TERMINANTEMENTE PROIBIDO O USO DE LINGUAGENS DE CUNHO SEXUAL, PERVERTIDA, PRECONCEITUOSA, CRIMINOSA OU POLITICAMENTE DIRECIONADA. O aplicativo Provalino é 100% laico, apartidário e protege rigorosamente crianças e adolescentes em conformidade absoluta com o Estatuto da Criança e do Adolescente (ECA) e a Base Nacional Comum Curricular (BNCC). NUNCA inclua em nenhuma questão rótulos deficitários ou menções a deficiências. Gere conteúdo estritamente pedagógico, único e exclusivo."
+        val systemInstructionText = "Você é o Provalino AI — assistente especialista em Provas Adaptadas com IA, inclusão pedagógica, DUA, AEE e diretrizes do MEC para Educação Infantil e Ensino Fundamental. DIRETRIZ MÁXIMA DE ASSUNTO: É OBRIGATÓRIO que 100% das questões (enunciados, alternativas e gabarito) sejam exclusivamente sobre o assunto/tema indicado em '$subject'. É TERMINANTEMENTE PROIBIDO criar questões genéricas ou sobre assuntos alheios ao tema '$subject'. É TERMINANTEMENTE PROIBIDO O USO DE LINGUAGENS DE CUNHO SEXUAL, PERVERTIDA, PRECONCEITUOSA, CRIMINOSA OU POLITICAMENTE DIRECIONADA. O aplicativo Provalino é 100% laico, apartidário e protege rigorosamente crianças e adolescentes em conformidade absoluta com o Estatuto da Criança e do Adolescente (ECA) e a Base Nacional Comum Curricular (BNCC). NUNCA inclua em nenhuma questão rótulos deficitários ou menções a deficiências. Gere conteúdo estritamente pedagógico, único e exclusivo."
 
-        val apiKey = BuildConfig.GEMINI_API_KEY
-        if (apiKey.isNotEmpty() && apiKey != "MY_GEMINI_API_KEY") {
-            try {
-                val request = GenerateContentRequest(
-                    contents = listOf(
-                        GeminiContent(parts = listOf(GeminiPart(text = prompt)))
-                    ),
-                    generationConfig = GenerationConfig(
-                        responseFormat = ResponseFormat(text = ResponseFormatText(mimeType = "application/json")),
-                        temperature = 0.7
-                    ),
-                    systemInstruction = GeminiContent(
-                        parts = listOf(GeminiPart(text = systemInstructionText))
-                    )
-                )
-                val response = service.generateContent(apiKey, request)
-                val rawText = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
-                if (rawText != null) {
-                    val jsonText = cleanJsonString(rawText)
-                    val adapter = moshi.adapter(AIQuestoesResponse::class.java)
-                    val aiResponse = try {
-                        adapter.fromJson(jsonText)
-                    } catch (e: Exception) {
-                        if (jsonText.startsWith("[")) {
-                            val listType = Types.newParameterizedType(List::class.java, AIQuestao::class.java)
-                            val listAdapter = moshi.adapter<List<AIQuestao>>(listType)
-                            listAdapter.fromJson(jsonText)?.let { AIQuestoesResponse(it) }
-                        } else null
-                    }
-                    val sanitized = validateAndSanitizeQuestions(aiResponse?.questoes, type, profile)
-                    if (sanitized.isNotEmpty()) return@withContext sanitized
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+        val rawApiKey = BuildConfig.GEMINI_API_KEY
+        val apiKey = if (rawApiKey.isNotBlank() && rawApiKey != "MY_GEMINI_API_KEY") {
+            rawApiKey
+        } else {
+            ""
         }
 
-        // Fallback robusto local pedagógico garantindo que nunca ocorra erro de conexão ou indisponibilidade de API
-        generateLocalFallbackQuestions(subject, grade, count, type, profile)
+        if (apiKey.isNotEmpty()) {
+            val modelsToTry = listOf("gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.1-flash-lite")
+            val request = GenerateContentRequest(
+                contents = listOf(
+                    GeminiContent(parts = listOf(GeminiPart(text = prompt)))
+                ),
+                generationConfig = GenerationConfig(
+                    responseFormat = ResponseFormat(text = ResponseFormatText(mimeType = "application/json")),
+                    temperature = 0.7
+                ),
+                systemInstruction = GeminiContent(
+                    parts = listOf(GeminiPart(text = systemInstructionText))
+                )
+            )
+
+            for (modelName in modelsToTry) {
+                try {
+                    Log.d("ProvalinoAI", "Tentando gerar com modelo Gemini: $modelName")
+                    val response = service.generateContentWithModel(modelName, apiKey, request)
+                    val rawText = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+                    if (rawText != null) {
+                        val jsonText = cleanJsonString(rawText)
+                        val adapter = moshi.adapter(AIQuestoesResponse::class.java)
+                        val aiResponse = try {
+                            adapter.fromJson(jsonText)
+                        } catch (e: Exception) {
+                            if (jsonText.startsWith("[")) {
+                                val listType = Types.newParameterizedType(List::class.java, AIQuestao::class.java)
+                                val listAdapter = moshi.adapter<List<AIQuestao>>(listType)
+                                listAdapter.fromJson(jsonText)?.let { AIQuestoesResponse(it) }
+                            } else null
+                        }
+                        val sanitized = validateAndSanitizeQuestions(aiResponse?.questoes, type, profile, subject)
+                        if (sanitized.isNotEmpty()) return@withContext sanitized
+                    }
+                } catch (e: Exception) {
+                    Log.e("ProvalinoAI", "Tentativa com Gemini modelo $modelName falhou: ${e.message}")
+                }
+            }
+        } else {
+            Log.w("ProvalinoAI", "Chave API do Gemini não configurada.")
+        }
+
+        // Fallback para Pollinations AI com modelo gpt-5.6-luna
+        try {
+            val pollinationRawText = callPollinationsFallback(systemInstructionText, prompt)
+            if (pollinationRawText != null) {
+                val jsonText = cleanJsonString(pollinationRawText)
+                val adapter = moshi.adapter(AIQuestoesResponse::class.java)
+                val aiResponse = try {
+                    adapter.fromJson(jsonText)
+                } catch (e: Exception) {
+                    if (jsonText.startsWith("[")) {
+                        val listType = Types.newParameterizedType(List::class.java, AIQuestao::class.java)
+                        val listAdapter = moshi.adapter<List<AIQuestao>>(listType)
+                        listAdapter.fromJson(jsonText)?.let { AIQuestoesResponse(it) }
+                    } else null
+                }
+                val sanitized = validateAndSanitizeQuestions(aiResponse?.questoes, type, profile, subject)
+                if (sanitized.isNotEmpty()) return@withContext sanitized
+            }
+        } catch (e: Exception) {
+            Log.e("ProvalinoPollination", "Falha no fallback Pollinations AI para generateQuestions: ${e.message}", e)
+        }
+
+        // Se a API não retornou questões ou ocorreu falha de rede/serviço
+        emptyList()
     }
 
     private fun generateLocalFallbackQuestions(
@@ -866,43 +989,102 @@ object GeminiClient {
         opcaoD: String,
         profile: String
     ): AIQuestao? = withContext(Dispatchers.IO) {
-        val apiKey = BuildConfig.GEMINI_API_KEY
-        val prompt = "Adapte esta questão para o perfil $profile: $enunciado"
+        val rawApiKey = BuildConfig.GEMINI_API_KEY
+        val apiKey = if (rawApiKey.isNotBlank() && rawApiKey != "MY_GEMINI_API_KEY") {
+            rawApiKey
+        } else {
+            ""
+        }
+        val profileDirectives = when (profile) {
+            "TEA", "AUTISMO", "DEF_INTELECTUAL", "TDAH", "SUPORTE_COGNITIVO", "SINDROME_DOWN" -> """
+                Você é um especialista em Educação Inclusiva e Neurodiversidade. Sua tarefa é adaptar a avaliação fornecida para uma criança com Deficiência Intelectual (DI) severa, TDAH, Síndrome de Down ou Autismo (alto nível de suporte).
 
-        if (apiKey.isNotEmpty() && apiKey != "MY_GEMINI_API_KEY") {
-            try {
-                val request = GenerateContentRequest(
-                    contents = listOf(
-                        GeminiContent(parts = listOf(GeminiPart(text = prompt)))
-                    ),
-                    generationConfig = GenerationConfig(
-                        responseFormat = ResponseFormat(text = ResponseFormatText(mimeType = "application/json")),
-                        temperature = 0.5
-                    ),
-                    systemInstruction = GeminiContent(
-                        parts = listOf(GeminiPart(text = "Você é o Provalino AI, especialista em adaptação pedagógica DUA e AEE."))
-                    )
+                Diretrizes obrigatórias:
+                1. Elimine textos de contexto longos ou desnecessários. Enunciados devem ter no máximo 1 a 2 frases curtas e objetivas.
+                2. Não utilize questões dissertativas/abertas. Substitua por marcar X, circular, ligar ou completar com palavras de um banco de opções.
+                3. Reduza as alternativas de múltipla escolha para apenas 2 ou 3 opções bem distintas (preencha opcaoA, opcaoB e opcionalmente opcaoC; deixe opcaoD vazia "").
+                4. Inclua indicações claras de onde deve haver suporte visual e pictogramas universais de CAA para crianças autistas (ex: [Pictograma/Imagem: Carro soltando fumaça 🚗💨]). Caso não seja possível uma imagem física, marque o local com o texto descritivo do pictograma acompanhado de emoticons/emojis representativos (ex: 🍎 Maçã, 🚗 Carro, ✏️ Lápis, 🐶 Cachorro, 🌳 Árvore).
+                5. Use fonte limpa e vocabulário simples, direto e literal.
+                Faça os ajustes redacionais para manter a coesão.
+            """.trimIndent()
+            else -> "Adapte com base no Design Universal para a Aprendizagem (DUA) para o perfil $profile."
+        }
+
+        val prompt = """
+            $profileDirectives
+
+            Questão original para adaptação:
+            Enunciado: $enunciado
+            Tipo: $tipo
+            Alternativa A: $opcaoA
+            Alternativa B: $opcaoB
+            Alternativa C: $opcaoC
+            Alternativa D: $opcaoD
+
+            Gere exclusivamente um JSON válido com os campos: enunciado, tipo, opcaoA, opcaoB, opcaoC, opcaoD, respostaCorreta, assunto, anoEscolar, codigoBNCC, pictogramasSuporte.
+        """.trimIndent()
+        val systemPrompt = "Você é o Provalino AI, especialista em Educação Inclusiva, DUA, CAA e AEE. Retorne estritamente em JSON."
+
+        if (apiKey.isNotEmpty()) {
+            val modelsToTry = listOf("gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.1-flash-lite")
+            val request = GenerateContentRequest(
+                contents = listOf(
+                    GeminiContent(parts = listOf(GeminiPart(text = prompt)))
+                ),
+                generationConfig = GenerationConfig(
+                    responseFormat = ResponseFormat(text = ResponseFormatText(mimeType = "application/json")),
+                    temperature = 0.5
+                ),
+                systemInstruction = GeminiContent(
+                    parts = listOf(GeminiPart(text = systemPrompt))
                 )
-                val response = service.generateContent(apiKey, request)
-                val rawText = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
-                if (rawText != null) {
-                    val jsonText = cleanJsonString(rawText)
-                    val adapter = moshi.adapter(AIQuestoesResponse::class.java)
-                    val aiResponse = try {
-                        adapter.fromJson(jsonText)
-                    } catch (e: Exception) {
-                        if (jsonText.startsWith("[")) {
-                            val listType = Types.newParameterizedType(List::class.java, AIQuestao::class.java)
-                            val listAdapter = moshi.adapter<List<AIQuestao>>(listType)
-                            listAdapter.fromJson(jsonText)?.let { AIQuestoesResponse(it) }
-                        } else null
+            )
+
+            for (modelName in modelsToTry) {
+                try {
+                    val response = service.generateContentWithModel(modelName, apiKey, request)
+                    val rawText = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+                    if (rawText != null) {
+                        val jsonText = cleanJsonString(rawText)
+                        val adapter = moshi.adapter(AIQuestoesResponse::class.java)
+                        val aiResponse = try {
+                            adapter.fromJson(jsonText)
+                        } catch (e: Exception) {
+                            if (jsonText.startsWith("[")) {
+                                val listType = Types.newParameterizedType(List::class.java, AIQuestao::class.java)
+                                val listAdapter = moshi.adapter<List<AIQuestao>>(listType)
+                                listAdapter.fromJson(jsonText)?.let { AIQuestoesResponse(it) }
+                            } else null
+                        }
+                        val sanitized = validateAndSanitizeQuestions(aiResponse?.questoes, tipo, profile)
+                        if (sanitized.isNotEmpty()) return@withContext sanitized.first()
                     }
-                    val sanitized = validateAndSanitizeQuestions(aiResponse?.questoes, tipo, profile)
-                    if (sanitized.isNotEmpty()) return@withContext sanitized.first()
+                } catch (e: Exception) {
+                    Log.w("ProvalinoAI", "Tentativa com modelo $modelName em adaptExistingQuestion falhou: ${e.message}")
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
             }
+        }
+
+        // Fallback para Pollinations AI com modelo gpt-5.6-luna
+        try {
+            val pollinationRawText = callPollinationsFallback(systemPrompt, prompt)
+            if (pollinationRawText != null) {
+                val jsonText = cleanJsonString(pollinationRawText)
+                val adapter = moshi.adapter(AIQuestoesResponse::class.java)
+                val aiResponse = try {
+                    adapter.fromJson(jsonText)
+                } catch (e: Exception) {
+                    if (jsonText.startsWith("[")) {
+                        val listType = Types.newParameterizedType(List::class.java, AIQuestao::class.java)
+                        val listAdapter = moshi.adapter<List<AIQuestao>>(listType)
+                        listAdapter.fromJson(jsonText)?.let { AIQuestoesResponse(it) }
+                    } else null
+                }
+                val sanitized = validateAndSanitizeQuestions(aiResponse?.questoes, tipo, profile)
+                if (sanitized.isNotEmpty()) return@withContext sanitized.first()
+            }
+        } catch (e: Exception) {
+            Log.e("ProvalinoPollination", "Falha no fallback Pollinations AI para adaptExistingQuestion: ${e.message}", e)
         }
 
         // Fallback local adaptado para garantir sucesso absoluto
@@ -942,6 +1124,25 @@ object GeminiClient {
         if (cleaned.endsWith("```")) {
             cleaned = cleaned.substring(0, cleaned.length - 3)
         }
+        cleaned = cleaned.trim()
+
+        val firstBrace = cleaned.indexOf('{')
+        val firstBracket = cleaned.indexOf('[')
+        val startIdx = when {
+            firstBrace != -1 && firstBracket != -1 -> minOf(firstBrace, firstBracket)
+            firstBrace != -1 -> firstBrace
+            firstBracket != -1 -> firstBracket
+            else -> -1
+        }
+
+        val lastBrace = cleaned.lastIndexOf('}')
+        val lastBracket = cleaned.lastIndexOf(']')
+        val endIdx = maxOf(lastBrace, lastBracket)
+
+        if (startIdx != -1 && endIdx != -1 && endIdx >= startIdx) {
+            cleaned = cleaned.substring(startIdx, endIdx + 1)
+        }
+
         return cleaned.trim()
     }
 
@@ -963,7 +1164,8 @@ object GeminiClient {
     private fun validateAndSanitizeQuestions(
         questions: List<AIQuestao>?,
         requestedType: String,
-        requestedProfile: String
+        requestedProfile: String,
+        requestedSubject: String = ""
     ): List<AIQuestao> {
         if (questions.isNullOrEmpty()) return emptyList()
 
@@ -988,14 +1190,17 @@ object GeminiClient {
                 }
             }
 
+            val finalSubject = if (q.assunto.isBlank()) requestedSubject else q.assunto.trim()
+
             when (normalizedType) {
                 "MULTIPLE_CHOICE" -> {
                     val opA = stripOptionPrefix(q.opcaoA, "A")
                     val opB = stripOptionPrefix(q.opcaoB, "B")
                     if (opA.isBlank() || opB.isBlank()) continue
 
-                    val opC = if (requestedProfile == "SUPORTE_COGNITIVO") "" else stripOptionPrefix(q.opcaoC, "C")
-                    val opD = if (requestedProfile == "SUPORTE_COGNITIVO") "" else stripOptionPrefix(q.opcaoD, "D")
+                    val isHighSupportProfile = requestedProfile in listOf("TEA", "AUTISMO", "DEF_INTELECTUAL", "TDAH", "SUPORTE_COGNITIVO", "SINDROME_DOWN")
+                    val opC = stripOptionPrefix(q.opcaoC, "C")
+                    val opD = if (isHighSupportProfile && opC.isBlank()) "" else if (isHighSupportProfile) "" else stripOptionPrefix(q.opcaoD, "D")
 
                     var resp = q.respostaCorreta.uppercase().trim()
                     if (resp !in listOf("A", "B", "C", "D")) resp = "A"
@@ -1009,7 +1214,7 @@ object GeminiClient {
                             opcaoC = opC,
                             opcaoD = opD,
                             respostaCorreta = resp,
-                            assunto = q.assunto.trim(),
+                            assunto = finalSubject,
                             anoEscolar = q.anoEscolar.trim(),
                             codigoBNCC = q.codigoBNCC.trim(),
                             pictogramasSuporte = q.pictogramasSuporte.trim()
@@ -1033,7 +1238,7 @@ object GeminiClient {
                             opcaoC = "",
                             opcaoD = "",
                             respostaCorreta = resp,
-                            assunto = q.assunto.trim(),
+                            assunto = finalSubject,
                             anoEscolar = q.anoEscolar.trim(),
                             codigoBNCC = q.codigoBNCC.trim(),
                             pictogramasSuporte = q.pictogramasSuporte.trim()
@@ -1050,7 +1255,7 @@ object GeminiClient {
                             opcaoC = "",
                             opcaoD = "",
                             respostaCorreta = q.respostaCorreta.trim(),
-                            assunto = q.assunto.trim(),
+                            assunto = finalSubject,
                             anoEscolar = q.anoEscolar.trim(),
                             codigoBNCC = q.codigoBNCC.trim(),
                             pictogramasSuporte = q.pictogramasSuporte.trim()
@@ -1059,6 +1264,7 @@ object GeminiClient {
                 }
             }
         }
-        return result
+        // Aplica o enriquecimento determinístico e ARASAAC via PictogramInjector
+        return result.map { PictogramInjector.enrichAIQuestaoPictograms(it, requestedProfile) }
     }
 }
