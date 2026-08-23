@@ -24,6 +24,12 @@ import kotlinx.coroutines.launch
 import com.example.data.AppUpdateState
 import com.example.data.AppVersionChecker
 import com.example.data.AnalyticsRepository
+import com.example.data.CardCaa
+import com.example.data.CardCaaRepository
+import com.example.data.CaaImportProgress
+import com.example.data.CaaJsonImporter
+import com.example.data.PlatformMetrics
+import com.example.data.UserAccountItem
 
 data class OfflineNoQuestionsDialogState(
     val subject: String,
@@ -76,10 +82,132 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
     private val _appUpdateState = MutableStateFlow(AppUpdateState())
     val appUpdateState: StateFlow<AppUpdateState> = _appUpdateState.asStateFlow()
 
+    private val _cardsCaa = MutableStateFlow<List<CardCaa>>(emptyList())
+    val cardsCaa: StateFlow<List<CardCaa>> = _cardsCaa.asStateFlow()
+
+    private val _isLoadingCardsCaa = MutableStateFlow(false)
+    val isLoadingCardsCaa: StateFlow<Boolean> = _isLoadingCardsCaa.asStateFlow()
+
+    private val _caaImportProgress = MutableStateFlow(CaaImportProgress())
+    val caaImportProgress: StateFlow<CaaImportProgress> = _caaImportProgress.asStateFlow()
+
+    private val _registeredAccounts = MutableStateFlow<List<UserAccountItem>>(emptyList())
+    val registeredAccounts: StateFlow<List<UserAccountItem>> = _registeredAccounts.asStateFlow()
+
+    private val _isLoadingAccounts = MutableStateFlow(false)
+    val isLoadingAccounts: StateFlow<Boolean> = _isLoadingAccounts.asStateFlow()
+
+    val platformMetrics: StateFlow<PlatformMetrics> = AnalyticsRepository.metrics
+
     init {
         val database = ProvalinoDatabase.getDatabase(application)
         repository = ProvalinoRepository(database.dao())
+        AnalyticsRepository.initialize(application)
         checkAppVersion()
+        loadCardsCaa()
+    }
+
+    fun refreshPlatformMetrics() {
+        viewModelScope.launch {
+            AnalyticsRepository.refreshMetrics()
+        }
+    }
+
+    fun loadRegisteredAccounts() {
+        viewModelScope.launch {
+            _isLoadingAccounts.value = true
+            val result = authRepository.getAllRegisteredAccounts()
+            if (result.isSuccess) {
+                _registeredAccounts.value = result.getOrDefault(emptyList())
+            }
+            _isLoadingAccounts.value = false
+        }
+    }
+
+    fun sendAdminUserPasswordReset(email: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val result = authRepository.sendPasswordResetEmail(email)
+            if (result.isSuccess) {
+                onResult(true, "E-mail de redefinição de senha enviado com sucesso para $email!")
+            } else {
+                onResult(false, result.exceptionOrNull()?.localizedMessage ?: "Erro ao disparar e-mail de redefinição.")
+            }
+        }
+    }
+
+    fun deleteOrDeactivateAdminUserAccount(uid: String, email: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val result = authRepository.deleteOrDeactivateUserAccount(uid, email)
+            if (result.isSuccess) {
+                loadRegisteredAccounts()
+                onResult(true, "Conta encerrada com sucesso no sistema. Um e-mail de segurança foi emitido.")
+            } else {
+                onResult(false, result.exceptionOrNull()?.localizedMessage ?: "Erro ao encerrar conta.")
+            }
+        }
+    }
+
+    fun importCaaJsonPipeline(jsonText: String, autoDownloadImages: Boolean = true, onComplete: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            _caaImportProgress.value = CaaImportProgress(isRunning = true, message = "Iniciando leitura do JSON...")
+            val result = CaaJsonImporter.importJsonPipeline(
+                jsonText = jsonText,
+                autoDownloadImages = autoDownloadImages,
+                onProgress = { progress ->
+                    _caaImportProgress.value = progress
+                }
+            )
+            if (result.isSuccess) {
+                loadCardsCaa(forceRefresh = true)
+                onComplete(true, "Sucesso: ${result.getOrNull()} cartões importados/sincronizados na coleção card_caa!")
+            } else {
+                val err = result.exceptionOrNull()?.localizedMessage ?: "Falha na importação do JSON."
+                _caaImportProgress.value = _caaImportProgress.value.copy(isRunning = false, message = "Erro: $err")
+                onComplete(false, err)
+            }
+        }
+    }
+
+    fun loadCardsCaa(forceRefresh: Boolean = false) {
+        viewModelScope.launch {
+            _isLoadingCardsCaa.value = true
+            val result = CardCaaRepository.getAllCards(forceRefresh)
+            if (result.isSuccess) {
+                _cardsCaa.value = result.getOrDefault(emptyList())
+            }
+            _isLoadingCardsCaa.value = false
+        }
+    }
+
+    fun searchCardsCaa(query: String = "", categoria: String? = null, nivelCognitivo: String? = null) {
+        viewModelScope.launch {
+            _isLoadingCardsCaa.value = true
+            val result = CardCaaRepository.searchCards(query, categoria, nivelCognitivo)
+            if (result.isSuccess) {
+                _cardsCaa.value = result.getOrDefault(emptyList())
+            }
+            _isLoadingCardsCaa.value = false
+        }
+    }
+
+    fun saveCardCaa(card: CardCaa, onComplete: (Result<String>) -> Unit = {}) {
+        viewModelScope.launch {
+            val result = CardCaaRepository.saveCard(card)
+            if (result.isSuccess) {
+                loadCardsCaa(forceRefresh = true)
+            }
+            onComplete(result)
+        }
+    }
+
+    fun deleteCardCaa(cardId: String, onComplete: (Result<Unit>) -> Unit = {}) {
+        viewModelScope.launch {
+            val result = CardCaaRepository.deleteCard(cardId)
+            if (result.isSuccess) {
+                loadCardsCaa(forceRefresh = true)
+            }
+            onComplete(result)
+        }
     }
 
     fun checkAppVersion() {
@@ -188,30 +316,48 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
     private val _showAdDialog = MutableStateFlow(false)
     val showAdDialog: StateFlow<Boolean> = _showAdDialog.asStateFlow()
 
-    private val _adType = MutableStateFlow("REWARDED") // "REWARDED" (+3 moedas) or "INTERSTITIAL" (0 moedas - rentabilização)
+    private val _adType = MutableStateFlow("REWARDED") // "REWARDED" (+2 moedas) or "INTERSTITIAL" (0 moedas - rentabilização)
     val adType: StateFlow<String> = _adType.asStateFlow()
 
-    // Anti-bot & Anti-abuse hourly rate limiting for rewarded ads
-    private var rewardedAdsWatchedThisHour = 0
+    // Anti-bot & Anti-abuse Daily and Hourly rate limiting for rewarded ads
+    // Limite diário estrito: Máximo de 10 moedas ganhas por dia com anúncios premiados
+    private var rewardedCoinsEarnedToday = 0
+    private var lastDayOfYear = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_YEAR)
     private var lastHourTimestamp = System.currentTimeMillis()
+    private var rewardedAdsWatchedThisHour = 0
     private val maxRewardedAdsPerHour = 5
+    private val maxDailyRewardedCoins = 10
+
     private val _adLimitMessage = MutableStateFlow<String?>(null)
     val adLimitMessage: StateFlow<String?> = _adLimitMessage.asStateFlow()
+
+    private fun checkDailyAndHourlyLimits() {
+        val currentDay = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_YEAR)
+        if (currentDay != lastDayOfYear) {
+            rewardedCoinsEarnedToday = 0
+            lastDayOfYear = currentDay
+            rewardedAdsWatchedThisHour = 0
+            lastHourTimestamp = System.currentTimeMillis()
+        }
+
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastHourTimestamp > 3600000) {
+            rewardedAdsWatchedThisHour = 0
+            lastHourTimestamp = currentTime
+        }
+    }
 
     fun deduzirMoedas(quantidade: Int = 2): Boolean {
         if (_moedas.value >= quantidade) {
             _moedas.value -= quantidade
             return true
         } else {
-            // Check hourly limit for anti-bot protection
-            val currentTime = System.currentTimeMillis()
-            if (currentTime - lastHourTimestamp > 3600000) {
-                rewardedAdsWatchedThisHour = 0
-                lastHourTimestamp = currentTime
-            }
+            checkDailyAndHourlyLimits()
 
-            if (rewardedAdsWatchedThisHour >= maxRewardedAdsPerHour) {
-                _adLimitMessage.value = "Limite máximo de anúncios recompensados atingido nesta hora (máx. 5/hora). Aguarde para evitar bloqueio anti-bot."
+            if (rewardedCoinsEarnedToday >= maxDailyRewardedCoins) {
+                _adLimitMessage.value = "Você atingiu o limite diário de 10 moedas gratuitas com anúncios hoje ($rewardedCoinsEarnedToday/$maxDailyRewardedCoins). Volte amanhã para resgatar mais moedas!"
+            } else if (rewardedAdsWatchedThisHour >= maxRewardedAdsPerHour) {
+                _adLimitMessage.value = "Limite de anúncios por hora atingido (máx. 5/hora). Aguarde para evitar bloqueio anti-bot."
             } else {
                 _adLimitMessage.value = null
             }
@@ -227,14 +373,16 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun openAdModal(type: String = "REWARDED") {
-        val currentTime = System.currentTimeMillis()
-        if (currentTime - lastHourTimestamp > 3600000) {
-            rewardedAdsWatchedThisHour = 0
-            lastHourTimestamp = currentTime
-        }
+        checkDailyAndHourlyLimits()
 
-        if (type == "REWARDED" && rewardedAdsWatchedThisHour >= maxRewardedAdsPerHour) {
-            _adLimitMessage.value = "Você atingiu o limite de ${maxRewardedAdsPerHour} anúncios recompensados por hora (Proteção Anti-Bot e Qualidade de Monetização)."
+        if (type == "REWARDED") {
+            if (rewardedCoinsEarnedToday >= maxDailyRewardedCoins) {
+                _adLimitMessage.value = "Você atingiu o limite diário de 10 moedas gratuitas hoje ($rewardedCoinsEarnedToday/$maxDailyRewardedCoins). Volte amanhã para resgatar mais!"
+            } else if (rewardedAdsWatchedThisHour >= maxRewardedAdsPerHour) {
+                _adLimitMessage.value = "Você atingiu o limite de ${maxRewardedAdsPerHour} anúncios por hora (Proteção Anti-Bot)."
+            } else {
+                _adLimitMessage.value = null
+            }
         } else {
             _adLimitMessage.value = null
         }
@@ -246,16 +394,18 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
     fun closeAdModal(grantReward: Boolean = false) {
         _showAdDialog.value = false
         if (grantReward && _adType.value == "REWARDED") {
-            val currentTime = System.currentTimeMillis()
-            if (currentTime - lastHourTimestamp > 3600000) {
-                rewardedAdsWatchedThisHour = 0
-                lastHourTimestamp = currentTime
-            }
+            checkDailyAndHourlyLimits()
 
-            if (rewardedAdsWatchedThisHour < maxRewardedAdsPerHour) {
-                rewardedAdsWatchedThisHour++
-                adicionarMoedas(3) // +3 moedas reward
-                _adLimitMessage.value = null
+            if (rewardedCoinsEarnedToday >= maxDailyRewardedCoins) {
+                _adLimitMessage.value = "Limite diário de 10 moedas já foi atingido hoje ($rewardedCoinsEarnedToday/$maxDailyRewardedCoins)."
+            } else if (rewardedAdsWatchedThisHour < maxRewardedAdsPerHour) {
+                val coinsToAdd = minOf(2, maxDailyRewardedCoins - rewardedCoinsEarnedToday)
+                if (coinsToAdd > 0) {
+                    rewardedAdsWatchedThisHour++
+                    rewardedCoinsEarnedToday += coinsToAdd
+                    adicionarMoedas(coinsToAdd)
+                    _adLimitMessage.value = null
+                }
             } else {
                 _adLimitMessage.value = "Limite horário de resgate atingido. Nenhuma moeda adicionada (Proteção Anti-Bot)."
             }
@@ -360,33 +510,6 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun toggleDeveloperPanel(show: Boolean) {
         _showDeveloperPanel.value = show
-    }
-
-    fun developerResetAllAccounts() {
-        signOut()
-        _showDeveloperPanel.value = false
-    }
-
-    fun developerInjectFirestoreQuestion(subject: String, enunciado: String) {
-        viewModelScope.launch {
-            repository.insertQuestao(
-                Questao(
-                    enunciado = enunciado,
-                    tipo = "MULTIPLE_CHOICE",
-                    opcaoA = "Opção A de Exemplo",
-                    opcaoB = "Opção B de Exemplo",
-                    opcaoC = "Opção C de Exemplo",
-                    opcaoD = "Opção D de Exemplo",
-                    respostaCorreta = "A",
-                    assunto = subject,
-                    anoEscolar = "3º Ano Fundamental",
-                    perfilAdaptacao = "REGULAR",
-                    codigoBNCC = "EF03MA01",
-                    pictogramasSuporte = "🔢 📚",
-                    teacherId = currentUser.value?.uid ?: ""
-                )
-            )
-        }
     }
 
     // --- OPERATIONS ---
@@ -565,6 +688,80 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
                     type = "ANY",
                     profile = aluno.necessidade,
                     aluno = aluno,
+                    isRetry = skipCoinDeduction
+                )
+            } finally {
+                _isGenerating.value = false
+            }
+        }
+    }
+
+    // AI Generation and Prova Creation (Custom / Direct from Provas Screen)
+    fun generateAndCreateProvaCustom(
+        titulo: String,
+        subject: String,
+        grade: String,
+        profile: String,
+        count: Int,
+        turmaId: Int? = null,
+        alunoNome: String? = null,
+        onComplete: (Prova) -> Unit = {},
+        skipCoinDeduction: Boolean = false
+    ) {
+        if (!skipCoinDeduction && !deduzirMoedas(2)) return
+        viewModelScope.launch {
+            _isGenerating.value = true
+            _aiError.value = null
+            openAdModal("INTERSTITIAL")
+            try {
+                val tId = currentUser.value?.uid ?: ""
+                val savedQuestions = repository.generateAndSaveAIQuestions(
+                    subject = subject,
+                    grade = grade,
+                    count = count,
+                    type = "ANY",
+                    profile = profile,
+                    teacherId = tId
+                )
+                if (savedQuestions.isNotEmpty()) {
+                    AnalyticsRepository.logActivityGenerated(profile, subject, grade, savedQuestions.size)
+                    val idsString = savedQuestions.joinToString(",") { it.id.toString() }
+                    val desc = if (!alunoNome.isNullOrBlank()) {
+                        "Aluno: $alunoNome | Perfil: $profile | Matéria: $subject ($grade)"
+                    } else {
+                        "Perfil Pedagógico: $profile | Matéria: $subject ($grade)"
+                    }
+                    val newProva = Prova(
+                        titulo = titulo.ifBlank { "Avaliação: $subject" },
+                        turmaId = turmaId,
+                        descricao = desc,
+                        questoesIds = idsString,
+                        teacherId = tId
+                    )
+                    val provaId = repository.insertProva(newProva)
+                    val createdProva = newProva.copy(id = provaId.toInt())
+                    _activeProvaForGrades.value = createdProva
+                    _currentScreen.value = "provas"
+                    onComplete(createdProva)
+                } else {
+                    _offlineNoQuestionsState.value = OfflineNoQuestionsDialogState(
+                        subject = subject,
+                        grade = grade,
+                        count = count,
+                        type = "ANY",
+                        profile = profile,
+                        aluno = null,
+                        isRetry = skipCoinDeduction
+                    )
+                }
+            } catch (e: Exception) {
+                _offlineNoQuestionsState.value = OfflineNoQuestionsDialogState(
+                    subject = subject,
+                    grade = grade,
+                    count = count,
+                    type = "ANY",
+                    profile = profile,
+                    aluno = null,
                     isRetry = skipCoinDeduction
                 )
             } finally {

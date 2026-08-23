@@ -15,8 +15,8 @@ android {
     applicationId = "com.aistudio.provalino.teacher.abcxyz"
     minSdk = 24
     targetSdk = 36
-    versionCode = 36
-    versionName = "36.0"
+    versionCode = 41
+    versionName = "41.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     ndk {

@@ -78,7 +78,75 @@ object PictogramCatalog {
             Item("errado", "Errado", "❌", "Conceito"),
             Item("incorreto", "Incorreto", "❌", "Conceito"),
 
-            // --- NATUREZA, CIÊNCIAS, ESTADOS FÍSICOS E MEIO AMBIENTE ---
+            // --- FAMÍLIA, HISTÓRIA, TEMPO E RELAÇÕES SOCIAIS ---
+            Item("familia", "Família", "👨‍👩‍👧‍👦", "Família"),
+            Item("família", "Família", "👨‍👩‍👧‍👦", "Família"),
+            Item("avo", "Avó", "👵", "Família"),
+            Item("avó", "Avó", "👵", "Família"),
+            Item("vovo", "Vovó", "👵", "Família"),
+            Item("vovó", "Vovó", "👵", "Família"),
+            Item("avô", "Avô", "👴", "Família"),
+            Item("vovô", "Vovô", "👴", "Família"),
+            Item("mae", "Mãe", "👩", "Família"),
+            Item("mãe", "Mãe", "👩", "Família"),
+            Item("pai", "Pai", "👨", "Família"),
+            Item("irmao", "Irmão", "👦", "Família"),
+            Item("irmão", "Irmão", "👦", "Família"),
+            Item("irma", "Irmã", "👧", "Família"),
+            Item("irmã", "Irmã", "👧", "Família"),
+            Item("bebe", "Bebê", "👶", "Família"),
+            Item("bebê", "Bebê", "👶", "Família"),
+            Item("crianca", "Criança", "🧒", "Família"),
+            Item("criança", "Criança", "🧒", "Família"),
+            Item("idoso", "Idoso", "👴", "Família"),
+            Item("idosa", "Idosa", "👵", "Família"),
+            Item("velho", "Mais Velho", "👵", "História"),
+            Item("velha", "Mais Velha", "👵", "História"),
+            Item("novo", "Novo", "👶", "História"),
+            Item("nova", "Nova", "👶", "História"),
+            Item("foto", "Foto", "📷", "Mídia"),
+            Item("fotografia", "Fotografia", "📷", "Mídia"),
+            Item("foto antiga", "Foto Antiga", "📷", "História"),
+            Item("fotografia antiga", "Foto Antiga", "📷", "História"),
+            Item("foto de hoje", "Foto Atual", "📷", "História"),
+            Item("foto atual", "Foto Atual", "📷", "História"),
+            Item("retrato", "Retrato", "🖼️", "Mídia"),
+            Item("imagem", "Imagem", "🖼️", "Mídia"),
+            Item("passado", "Passado", "⏳", "Tempo"),
+            Item("antigo", "Antigo", "⏳", "Tempo"),
+            Item("antiga", "Antiga", "⏳", "Tempo"),
+            Item("antigamente", "Antigamente", "⏳", "Tempo"),
+            Item("presente", "Presente", "📅", "Tempo"),
+            Item("hoje", "Hoje", "📅", "Tempo"),
+            Item("atual", "Atual", "📅", "Tempo"),
+            Item("agora", "Agora", "⏱️", "Tempo"),
+            Item("futuro", "Futuro", "🚀", "Tempo"),
+            Item("historia", "História", "📜", "História"),
+            Item("história", "História", "📜", "História"),
+
+            // --- LÓGICA, VERDADEIRO/FALSO E RESPOSTAS ---
+            Item("verdadeiro", "Verdadeiro (V)", "✅", "Lógica"),
+            Item("verdadeira", "Verdadeira (V)", "✅", "Lógica"),
+            Item("verdade", "Verdadeiro", "✅", "Lógica"),
+            Item("v", "Verdadeiro", "✅", "Lógica"),
+            Item("falso", "Falso (F)", "❌", "Lógica"),
+            Item("falsa", "Falsa (F)", "❌", "Lógica"),
+            Item("f", "Falso", "❌", "Lógica"),
+            Item("sim", "Sim", "👍", "Lógica"),
+            Item("nao", "Não", "👎", "Lógica"),
+            Item("não", "Não", "👎", "Lógica"),
+
+            // --- NÚMEROS INDIVIDUAIS ---
+            Item("1", "1", "1️⃣", "Matemática"),
+            Item("2", "2", "2️⃣", "Matemática"),
+            Item("3", "3", "3️⃣", "Matemática"),
+            Item("4", "4", "4️⃣", "Matemática"),
+            Item("5", "5", "5️⃣", "Matemática"),
+            Item("6", "6", "6️⃣", "Matemática"),
+            Item("7", "7", "7️⃣", "Matemática"),
+            Item("8", "8", "8️⃣", "Matemática"),
+            Item("9", "9", "9️⃣", "Matemática"),
+            Item("10", "10", "🔟", "Matemática"),
             Item("gelo", "Gelo", "🧊", "Ciências"),
             Item("solido", "Sólido", "🧊", "Ciências"),
             Item("sólido", "Sólido", "🧊", "Ciências"),
@@ -351,15 +419,44 @@ object PictogramCatalog {
             }
         }
 
-        // 5. Fallback semântico para evitar deixar tags vazias ou cruas
+        // 5. Fallback semântico inteligente para evitar tachinhas ou símbolos quebrados
+        val cleanLabel = term
+            .replace(Regex("""\[(?:Pictograma|Imagem|Foto|Fotografia|Desenho|CAA|Visual|Ícone|Icone|Símbolo|Simbolo|Card)(?:[/\s\-_]+(?:Pictograma|Imagem|Foto|Fotografia|Desenho|CAA|Visual|Ícone|Icone|Símbolo|Simbolo|Card))?:\s*""", RegexOption.IGNORE_CASE), "")
+            .replace("[", "")
+            .replace("]", "")
+            .replace("ARASAAC:", "")
+            .replace(Regex("""[\p{So}\p{Sk}\p{Sm}\p{Cs}\p{Cn}]"""), "")
+            .trim()
+
         return when {
-            normalized.contains("solido") || normalized.contains("sólido") || normalized.contains("gelo") -> Item(normalized, term.replace("[", "").replace("]", "").trim(), "🧊", "Ciências")
-            normalized.contains("liquido") || normalized.contains("líquido") || normalized.contains("agua") || normalized.contains("água") -> Item(normalized, term.replace("[", "").replace("]", "").trim(), "💧", "Ciências")
-            normalized.contains("gas") || normalized.contains("gasoso") || normalized.contains("ar") || normalized.contains("vapor") -> Item(normalized, term.replace("[", "").replace("]", "").trim(), "💨", "Ciências")
-            normalized.contains("quente") || normalized.contains("fogo") || normalized.contains("calor") -> Item(normalized, term.replace("[", "").replace("]", "").trim(), "🔥", "Ciências")
-            normalized.contains("frio") || normalized.contains("neve") -> Item(normalized, term.replace("[", "").replace("]", "").trim(), "❄️", "Ciências")
-            else -> Item(normalized, term.replace("[", "").replace("]", "").replace("ARASAAC:", "").trim(), "📌", "Geral")
+            normalized.contains("foto") || normalized.contains("fotografia") || normalized.contains("retrato") || normalized.contains("camera") || normalized.contains("câmera") -> Item(normalized, cleanLabel.ifBlank { "Foto" }, "📷", "Mídia")
+            normalized.contains("familia") || normalized.contains("família") || normalized.contains("parente") -> Item(normalized, cleanLabel.ifBlank { "Família" }, "👨‍👩‍👧‍👦", "Família")
+            normalized.contains("avo") || normalized.contains("avó") || normalized.contains("vovo") || normalized.contains("vovó") || normalized.contains("idosa") -> Item(normalized, cleanLabel.ifBlank { "Avó" }, "👵", "Família")
+            normalized.contains("avô") || normalized.contains("vovô") || normalized.contains("idoso") -> Item(normalized, cleanLabel.ifBlank { "Avô" }, "👴", "Família")
+            normalized.contains("velho") || normalized.contains("velha") -> Item(normalized, cleanLabel.ifBlank { "Mais Velho" }, "👵", "História")
+            normalized.contains("novo") || normalized.contains("nova") || normalized.contains("crianca") || normalized.contains("criança") || normalized.contains("bebe") || normalized.contains("bebê") -> Item(normalized, cleanLabel.ifBlank { "Novo" }, "👶", "História")
+            normalized.contains("verdade") || normalized.contains("verdadeiro") || normalized.contains("verdadeira") || normalized == "v" -> Item(normalized, cleanLabel.ifBlank { "Verdadeiro (V)" }, "✅", "Lógica")
+            normalized.contains("falso") || normalized.contains("falsa") || normalized.contains("falsidade") || normalized.contains("mentira") || normalized == "f" -> Item(normalized, cleanLabel.ifBlank { "Falso (F)" }, "❌", "Lógica")
+            normalized.contains("antigo") || normalized.contains("antiga") || normalized.contains("passado") || normalized.contains("historia") || normalized.contains("história") -> Item(normalized, cleanLabel.ifBlank { "História" }, "⏳", "História")
+            normalized.contains("hoje") || normalized.contains("atual") || normalized.contains("presente") || normalized.contains("agora") -> Item(normalized, cleanLabel.ifBlank { "Atual" }, "📅", "Tempo")
+            normalized.contains("ver") || normalized.contains("olhar") || normalized.contains("olho") || normalized.contains("enxergar") -> Item(normalized, cleanLabel.ifBlank { "Ver" }, "👀", "Sentidos")
+            normalized.contains("ouvir") || normalized.contains("escutar") || normalized.contains("ouvido") || normalized.contains("orelha") -> Item(normalized, cleanLabel.ifBlank { "Ouvir" }, "👂", "Sentidos")
+            normalized.contains("falar") || normalized.contains("dizer") || normalized.contains("contar") || normalized.contains("historia") -> Item(normalized, cleanLabel.ifBlank { "Falar" }, "🗣️", "Comunicação")
+            normalized.contains("solido") || normalized.contains("sólido") || normalized.contains("gelo") -> Item(normalized, cleanLabel.ifBlank { "Sólido" }, "🧊", "Ciências")
+            normalized.contains("liquido") || normalized.contains("líquido") || normalized.contains("agua") || normalized.contains("água") -> Item(normalized, cleanLabel.ifBlank { "Líquido" }, "💧", "Ciências")
+            normalized.contains("gas") || normalized.contains("gasoso") || normalized.contains("ar") || normalized.contains("vapor") -> Item(normalized, cleanLabel.ifBlank { "Gasoso" }, "💨", "Ciências")
+            normalized.contains("quente") || normalized.contains("fogo") || normalized.contains("calor") -> Item(normalized, cleanLabel.ifBlank { "Quente" }, "🔥", "Ciências")
+            normalized.contains("frio") || normalized.contains("neve") -> Item(normalized, cleanLabel.ifBlank { "Frio" }, "❄️", "Ciências")
+            normalized.all { it.isDigit() } -> Item(normalized, cleanLabel.ifBlank { normalized }, "🔢", "Matemática")
+            else -> Item(normalized, cleanLabel.ifBlank { "Item" }, "🖼️", "Geral")
         }
+    }
+
+    /**
+     * Resolve um símbolo/emoji determinístico para um termo ou expressão textual.
+     */
+    fun resolveSymbol(term: String): String {
+        return find(term)?.symbol ?: "🖼️"
     }
 
     /**

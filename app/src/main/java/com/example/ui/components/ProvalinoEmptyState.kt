@@ -58,7 +58,7 @@ fun ProvalinoEmptyState(
         ) {
             // Mascot Avatar
             Image(
-                painter = painterResource(id = R.drawable.provalino_mascot),
+                painter = painterResource(id = R.drawable.img_provalino_blue_owl_avatar_1787513526538),
                 contentDescription = "Mascote Coruja Provalino",
                 modifier = Modifier
                     .size(96.dp)

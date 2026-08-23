@@ -10,7 +10,12 @@ import android.net.Uri
 import androidx.compose.material3.Surface
 import com.example.data.AppUpdateState
 import com.example.data.PictogramInjector
+import com.example.data.PictogramCatalog
+import com.example.data.AlunoNecessidadeEspecial
+import com.example.data.PdfShareHelper
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.HorizontalDivider
 
 
@@ -53,6 +58,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -117,6 +123,17 @@ import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.delay
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import com.example.ui.theme.ClayButton
+import com.example.ui.theme.ClayCard
+import com.example.ui.theme.ClayColors
+import com.example.ui.theme.ClayTabButton
+import com.example.ui.theme.ClayCoinBadge
+import com.example.ui.theme.ClayTextField
+import com.example.ui.theme.ClayLoadingSpinner
+import com.example.ui.theme.ClayLoadingDots
+import com.example.ui.theme.ClayLoadingCard
+import com.example.ui.theme.clayBounce
+import com.example.ui.theme.clayScale
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -183,7 +200,6 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
     val adLimitMessage by viewModel.adLimitMessage.collectAsState()
     val showTour by viewModel.showTour.collectAsState()
     val tourStep by viewModel.tourStep.collectAsState()
-    val showDeveloperPanel by viewModel.showDeveloperPanel.collectAsState()
     val updateState by viewModel.appUpdateState.collectAsState()
     val offlineNoQuestionsState by viewModel.offlineNoQuestionsState.collectAsState()
 
@@ -191,6 +207,20 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
     val clipboardManager = LocalClipboardManager.current
     val coroutineScope = rememberCoroutineScope()
     var showPrivacyPolicyDialog by remember { mutableStateOf(false) }
+    val isAdmin = currentUser?.email == "marcio.moura2708@gmail.com" || currentUser?.email == "admteste@example.com"
+
+    // Primeiro acesso: Exibe o tour guiado do Provalino automaticamente
+    LaunchedEffect(currentUser?.uid) {
+        val userUid = currentUser?.uid
+        if (userUid != null) {
+            val prefs = context.getSharedPreferences("provalino_prefs", android.content.Context.MODE_PRIVATE)
+            val hasSeenTour = prefs.getBoolean("has_seen_tour_$userUid", false)
+            if (!hasSeenTour) {
+                prefs.edit().putBoolean("has_seen_tour_$userUid", true).apply()
+                viewModel.startTour()
+            }
+        }
+    }
 
     if (showPrivacyPolicyDialog) {
         com.example.ui.PrivacyPolicyDialog(
@@ -203,17 +233,21 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
             updateState = updateState,
             onDismiss = { viewModel.dismissUpdateDialog() },
             onUpdateClick = {
-                val pkgName = updateState.playStorePackage
+                val urlToOpen = if (updateState.updateUrl.isNotBlank()) updateState.updateUrl else "https://play.google.com/store/apps/details?id=${updateState.playStorePackage}"
                 try {
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$pkgName")).apply {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(urlToOpen)).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     }
                     context.startActivity(intent)
                 } catch (e: Exception) {
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$pkgName")).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    try {
+                        val marketIntent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=${updateState.playStorePackage}")).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        context.startActivity(marketIntent)
+                    } catch (e2: Exception) {
+                        // Ignora falha de abertura externa silenciosamente
                     }
-                    context.startActivity(intent)
                 }
             }
         )
@@ -232,7 +266,7 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
                         .statusBarsPadding()
                         .padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
-                    // --- LINHA 1 (PRINCIPAL): Nome do App com Ícone do Mascote e Engrenagem ---
+                    // --- LINHA 1 (PRINCIPAL): Nome do App com Ícone do Mascote ---
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -256,7 +290,7 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
                             }
 
                             Image(
-                                painter = painterResource(id = R.drawable.provalino_mascot),
+                                painter = painterResource(id = R.drawable.img_provalino_blue_owl_avatar_1787513526538),
                                 contentDescription = "Mascote Provalino",
                                 modifier = Modifier
                                     .size(34.dp)
@@ -273,21 +307,6 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
                                 maxLines = 1
                             )
                         }
-
-                        // Engrenagem (Painel Dev / Configurações) na linha principal
-                        val isAdmin = currentUser?.email == "marcio.moura2708@gmail.com" || currentUser?.email == "admteste@example.com"
-                        if (isAdmin) {
-                            IconButton(
-                                onClick = { viewModel.toggleDeveloperPanel(true) },
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Settings,
-                                    contentDescription = "Painel do Desenvolvedor",
-                                    tint = Color(0xFFFFD54F)
-                                )
-                            }
-                        }
                     }
 
                     Spacer(modifier = Modifier.height(4.dp))
@@ -298,33 +317,21 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        // Identificação do Professor ou Botão de Moedas
+                        // Identificação do Professor e Botão de Moedas em Clay
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .background(Color(0xFFFFECB3), RoundedCornerShape(12.dp))
-                                    .border(BorderStroke(1.dp, Color(0xFFFFB300)), RoundedCornerShape(12.dp))
-                                    .clickable { viewModel.openAdModal("REWARDED") }
-                                    .padding(horizontal = 8.dp, vertical = 3.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Text("🪙", fontSize = 12.sp)
-                                    Text("$moedas Moedas", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color(0xFF5D4037))
-                                    Text("+", fontWeight = FontWeight.ExtraBold, fontSize = 11.sp, color = Color(0xFF2E7D32))
-                                }
-                            }
+                            ClayCoinBadge(
+                                coins = moedas,
+                                onClick = { viewModel.openAdModal("REWARDED") }
+                            )
 
                             Text(
                                 text = "Prof(a). ${currentUser?.email?.substringBefore("@") ?: "Docente"}",
                                 fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.92f),
-                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.95f),
+                                fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -337,7 +344,7 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
                         ) {
                             IconButton(
                                 onClick = { showPrivacyPolicyDialog = true },
-                                modifier = Modifier.size(32.dp)
+                                modifier = Modifier.size(32.dp).clayBounce()
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Lock,
@@ -349,7 +356,7 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
 
                             IconButton(
                                 onClick = { viewModel.startTour() },
-                                modifier = Modifier.size(32.dp)
+                                modifier = Modifier.size(32.dp).clayBounce()
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Info,
@@ -361,7 +368,7 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
 
                             IconButton(
                                 onClick = { viewModel.signOut() },
-                                modifier = Modifier.size(32.dp)
+                                modifier = Modifier.size(32.dp).clayBounce()
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Close,
@@ -402,6 +409,16 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
                     label = { Text("Provas", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
                     modifier = Modifier.testTag("nav_provas")
                 )
+
+                if (isAdmin) {
+                    NavigationBarItem(
+                        selected = currentScreen == "developer",
+                        onClick = { viewModel.setScreen("developer") },
+                        icon = { Text("⚙️", fontSize = 18.sp) },
+                        label = { Text("Dev / Admin", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                        modifier = Modifier.testTag("nav_dev")
+                    )
+                }
             }
         }
     ) { innerPadding ->
@@ -437,11 +454,20 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
                     viewModel = viewModel,
                     provas = provas,
                     turmas = turmas,
+                    alunos = alunosInclusao,
                     onVerDetalhes = { prova ->
                         viewModel.selectProvaForGrades(prova)
                         viewModel.setScreen("detalhes_prova")
                     }
                 )
+                "developer" -> if (isAdmin) {
+                    com.example.ui.DevDashboardScreen(
+                        viewModel = viewModel,
+                        currentUserEmail = currentUser?.email ?: ""
+                    )
+                } else {
+                    viewModel.setScreen("home")
+                }
                 "nova_prova" -> NovaProvaScreen(
                     viewModel = viewModel,
                     turmas = turmas,
@@ -504,15 +530,6 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
                     }
                 }
             }
-        }
-
-        val isUserAdmin = currentUser?.email == "marcio.moura2708@gmail.com" || currentUser?.email == "admteste@example.com"
-        if (showDeveloperPanel && isUserAdmin) {
-            DeveloperPanelDialog(
-                viewModel = viewModel,
-                currentUserEmail = currentUser?.email ?: "",
-                onClose = { viewModel.toggleDeveloperPanel(false) }
-            )
         }
 
         if (offlineNoQuestionsState != null) {
@@ -646,7 +663,7 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
             val steps = listOf(
                 Triple(
                     "🦉 Bem-vindo ao Provalino AI!",
-                    "Seu assistente inteligente de inteligência artificial para criar avaliações diferenciadas, inclusivas e personalizadas para seus alunos com facilidade e rapidez.",
+                    "Seu assistente inteligente para criar avaliações diferenciadas, inclusivas e personalizadas para seus alunos com facilidade e rapidez.",
                     "Passo 1 de 4"
                 ),
                 Triple(
@@ -661,7 +678,7 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
                 ),
                 Triple(
                     "📚 3. Histórico e Economia ('Provas')",
-                    "Todas las provas geradas ficam salvas automaticamente no banco de dados local. Você pode visualizá-las e reutilizá-las na aba 'Provas' a qualquer momento sem gastar moedas novas!",
+                    "Todas as provas geradas ficam salvas automaticamente no banco de dados local. Você pode visualizá-las e reutilizá-las na aba 'Provas' a qualquer momento sem gastar moedas novas!",
                     "Passo 4 de 4"
                 )
             )
@@ -669,29 +686,32 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
 
             AlertDialog(
                 onDismissRequest = { viewModel.dismissTour() },
+                containerColor = MaterialTheme.colorScheme.surface,
+                titleContentColor = MaterialTheme.colorScheme.onSurface,
+                textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 title = {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
                             text = currentStepInfo.third,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF1E88E5)
+                            color = MaterialTheme.colorScheme.primary
                         )
                         Text(
                             text = currentStepInfo.first,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
-                            color = Color(0xFF2C3E50)
+                            fontSize = 17.sp,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         Text(
                             text = currentStepInfo.second,
-                            fontSize = 14.sp,
-                            color = Color(0xFF333333),
-                            lineHeight = 20.sp
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 19.sp
                         )
                         
                         Row(
@@ -705,7 +725,7 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
                                         .padding(horizontal = 4.dp)
                                         .size(if (i == tourStep) 10.dp else 6.dp)
                                         .background(
-                                            color = if (i == tourStep) Color(0xFF1E88E5) else Color(0xFFB0BEC5),
+                                            color = if (i == tourStep) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
                                             shape = CircleShape
                                         )
                                 )
@@ -715,24 +735,41 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
                 },
                 confirmButton = {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        TextButton(onClick = { viewModel.dismissTour() }) {
-                            Text("Pular Tour", color = Color(0xFF757575))
+                        TextButton(
+                            onClick = { viewModel.dismissTour() },
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                        ) {
+                            Text("Pular", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                         }
                         
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             if (tourStep > 0) {
-                                OutlinedButton(onClick = { viewModel.prevTourStep() }) {
-                                    Text("Anterior")
+                                OutlinedButton(
+                                    onClick = { viewModel.prevTourStep() },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text("Anterior", fontSize = 11.sp)
                                 }
                             }
                             Button(
                                 onClick = { viewModel.nextTourStep() },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5))
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                             ) {
-                                Text(if (tourStep == 3) "Concluir" else "Próximo", fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = if (tourStep == 3) "Concluir 🎉" else "Próximo ➜",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp
+                                )
                             }
                         }
                     }
@@ -810,7 +847,7 @@ fun ProvalinoMascotProgressWidget(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Owl Mascot Animated Box
+                // Owl Mascot Animated Box in Claymation
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
@@ -821,12 +858,12 @@ fun ProvalinoMascotProgressWidget(
                             scaleY = scale
                         }
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer)
-                        .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                        .background(ClayColors.TealLight.copy(alpha = 0.5f))
+                        .border(2.5.dp, ClayColors.Teal, CircleShape)
                 ) {
                     Image(
-                        painter = painterResource(id = R.drawable.provalino_mascot),
-                        contentDescription = "Coruja Mestre Provalino Animada",
+                        painter = painterResource(id = R.drawable.img_provalino_blue_owl_avatar_1787513526538),
+                        contentDescription = "Coruja Mestre Provalino em Massinha",
                         modifier = Modifier
                             .fillMaxSize()
                             .clip(CircleShape),
@@ -918,21 +955,22 @@ fun HomeScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Hero Banner Card
+        // Hero Banner Card in Claymation style
         item {
-            Card(
+            ClayCard(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(28.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                shape = RoundedCornerShape(24.dp),
+                backgroundColor = Color.White,
+                borderColor = ClayColors.TealLight,
+                elevation = 4.dp
             ) {
                 Image(
-                    painter = painterResource(id = R.drawable.provalino_hero_banner),
-                    contentDescription = "Coruja Provalino AI Banner",
+                    painter = painterResource(id = R.drawable.img_provalino_hero_banner_pt_1787513538843),
+                    contentDescription = "Coruja Provalino AI Banner em Massinha",
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(150.dp)
-                        .clip(RoundedCornerShape(28.dp)),
+                        .height(160.dp)
+                        .clip(RoundedCornerShape(20.dp)),
                     contentScale = ContentScale.Crop
                 )
             }
@@ -944,6 +982,56 @@ fun HomeScreen(
                 completedCount = questaoCount,
                 totalGoal = 10
             )
+        }
+
+        // Banner Interativo de Ajuda / Tour do Provalino
+        item {
+            ClayCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { viewModel.startTour() }
+                    .testTag("home_card_tour_ajuda"),
+                shape = RoundedCornerShape(20.dp),
+                backgroundColor = ClayColors.TealLight.copy(alpha = 0.25f),
+                borderColor = ClayColors.TealLight,
+                elevation = 3.dp
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .background(ClayColors.Teal, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("💡", fontSize = 22.sp)
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Não sabe por onde começar?",
+                            fontWeight = FontWeight.Black,
+                            fontSize = 15.sp,
+                            color = ClayColors.TealDark
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Clique aqui, o Provalino te ajuda! 🦉✨",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = ClayColors.Teal
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = "Iniciar Tour",
+                        tint = ClayColors.Teal,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
         }
 
         // Summary Quick Stats
@@ -975,65 +1063,69 @@ fun HomeScreen(
 
         // Big Main Action Buttons
         item {
-            Card(
+            ClayCard(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                shape = RoundedCornerShape(22.dp),
+                backgroundColor = Color.White,
+                borderColor = ClayColors.TealLight,
+                elevation = 3.dp
             ) {
                 Column(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
                         text = "Ações Rápidas",
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.Black,
                         fontSize = 16.sp,
-                        color = Color(0xFF333333)
+                        color = ClayColors.TextPrimary
                     )
 
-                    Button(
+                    ClayButton(
                         onClick = { viewModel.setScreen("questoes") },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp)
                             .testTag("home_btn_gerar_ia"),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9C27B0)),
-                        shape = RoundedCornerShape(16.dp)
+                        backgroundColor = ClayColors.Purple,
+                        darkShadowColor = ClayColors.PurpleDark,
+                        shape = RoundedCornerShape(18.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("🤖  ", fontSize = 18.sp)
-                            Text("Gerar Atividades com Provalino AI", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            Text("Gerar Atividades com Provalino AI", fontSize = 15.sp, fontWeight = FontWeight.Black)
                         }
                     }
 
-                    Button(
+                    ClayButton(
                         onClick = { viewModel.setScreen("inclusao") },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp)
                             .testTag("home_btn_alunos"),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5)),
-                        shape = RoundedCornerShape(16.dp)
+                        backgroundColor = ClayColors.Blue,
+                        darkShadowColor = ClayColors.BlueDark,
+                        shape = RoundedCornerShape(18.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("🧑‍🎓  ", fontSize = 18.sp)
-                            Text("Alunos na Sala ($alunoCount/9)", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            Text("Alunos na Sala ($alunoCount/9)", fontSize = 15.sp, fontWeight = FontWeight.Black)
                         }
                     }
 
-                    Button(
+                    ClayButton(
                         onClick = { viewModel.setScreen("nova_prova") },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp)
                             .testTag("home_btn_criar_prova"),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)),
-                        shape = RoundedCornerShape(16.dp)
+                        backgroundColor = ClayColors.Green,
+                        darkShadowColor = ClayColors.GreenDark,
+                        shape = RoundedCornerShape(18.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("📝  ", fontSize = 18.sp)
-                            Text("Montar Prova Adaptada", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            Text("Montar Prova Adaptada", fontSize = 15.sp, fontWeight = FontWeight.Black)
                         }
                     }
                 }
@@ -1045,8 +1137,8 @@ fun HomeScreen(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF9C4)),
-                border = BorderStroke(1.dp, Color(0xFFFFF176))
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
             ) {
                 Row(
                     modifier = Modifier.padding(16.dp),
@@ -1058,13 +1150,13 @@ fun HomeScreen(
                             text = "Como funciona o Provalino AI?",
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
-                            color = Color(0xFF5D4037)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "1. Cadastre até 9 carteiras de alunos nas necessidades especiais (TEA, TDAH, Dislexia, etc) e grau de severidade.\n2. Gere atividades e questões 100% adaptadas com Provalino AI.\n3. Monte provas pedagógicas inclusivas para Educação Infantil e Ensino Fundamental seguindo as normas DUA/AEE do MEC!",
                             fontSize = 12.sp,
-                            color = Color(0xFF5D4037),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 18.sp
                         )
                     }
@@ -1084,29 +1176,30 @@ fun HomeScreen(
 
 @Composable
 fun StatCard(icon: String, count: Int, title: String, modifier: Modifier = Modifier) {
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ClayCard(
+        modifier = modifier.clayBounce(),
+        shape = RoundedCornerShape(18.dp),
+        backgroundColor = Color.White,
+        borderColor = ClayColors.TealLight,
+        elevation = 3.dp
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(icon, fontSize = 24.sp)
+            Text(icon, fontSize = 26.sp)
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = count.toString(),
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.Black,
                 fontSize = 22.sp,
-                color = MaterialTheme.colorScheme.primary
+                color = ClayColors.TealDark
             )
             Text(
                 text = title,
                 fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontWeight = FontWeight.Medium
+                color = ClayColors.TextSecondary,
+                fontWeight = FontWeight.Bold
             )
         }
     }
@@ -1466,10 +1559,16 @@ fun QuestoesScreen(
                             if (q.tipo == "MULTIPLE_CHOICE") {
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    if (q.opcaoA.isNotBlank()) Text("A) ${q.opcaoA}", fontSize = 13.sp, color = Color(0xFF555555))
-                                    if (q.opcaoB.isNotBlank()) Text("B) ${q.opcaoB}", fontSize = 13.sp, color = Color(0xFF555555))
-                                    if (q.opcaoC.isNotBlank()) Text("C) ${q.opcaoC}", fontSize = 13.sp, color = Color(0xFF555555))
-                                    if (q.opcaoD.isNotBlank()) Text("D) ${q.opcaoD}", fontSize = 13.sp, color = Color(0xFF555555))
+                                    if (q.opcaoA.isNotBlank()) Text("A) ${formatOptionText(q.opcaoA, "A")}", fontSize = 13.sp, color = Color(0xFF0F172A), fontWeight = FontWeight.SemiBold)
+                                    if (q.opcaoB.isNotBlank()) Text("B) ${formatOptionText(q.opcaoB, "B")}", fontSize = 13.sp, color = Color(0xFF0F172A), fontWeight = FontWeight.SemiBold)
+                                    if (q.opcaoC.isNotBlank()) Text("C) ${formatOptionText(q.opcaoC, "C")}", fontSize = 13.sp, color = Color(0xFF0F172A), fontWeight = FontWeight.SemiBold)
+                                    if (q.opcaoD.isNotBlank()) Text("D) ${formatOptionText(q.opcaoD, "D")}", fontSize = 13.sp, color = Color(0xFF0F172A), fontWeight = FontWeight.SemiBold)
+                                }
+                            } else if (q.tipo == "TRUE_FALSE") {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text("• (   ) Verdadeiro (V)", fontSize = 13.sp, color = Color(0xFF0F172A), fontWeight = FontWeight.SemiBold)
+                                    Text("• (   ) Falso (F)", fontSize = 13.sp, color = Color(0xFF0F172A), fontWeight = FontWeight.SemiBold)
                                 }
                             }
 
@@ -1607,8 +1706,11 @@ fun QuestoesScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color(0xFF9C27B0))
-                            Text("O Provalino AI está reescrevendo a questão... Aguarde...", fontSize = 12.sp, color = Color(0xFF9C27B0), fontWeight = FontWeight.Medium)
+                            ClayLoadingDots(
+                                dotSize = 8.dp,
+                                colors = listOf(ClayColors.Teal, Color(0xFF9C27B0), ClayColors.Orange)
+                            )
+                            Text("O Provalino AI está reescrevendo a questão... Aguarde...", fontSize = 12.sp, color = Color(0xFF9C27B0), fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -1670,10 +1772,24 @@ fun ProvasScreen(
     viewModel: ProvalinoViewModel,
     provas: List<Prova>,
     turmas: List<Turma>,
+    alunos: List<AlunoNecessidadeEspecial> = emptyList(),
     onVerDetalhes: (Prova) -> Unit
 ) {
+    val context = LocalContext.current
     var searchQuery by remember { mutableStateOf("") }
     var filterCategory by remember { mutableStateOf("TODAS") } // "TODAS", "ALUNO", "MATERIA"
+    var showCreateProvaDialog by remember { mutableStateOf(false) }
+
+    // Dialog state for modern AI Exam Generator
+    var generationMode by remember { mutableStateOf(if (alunos.isNotEmpty()) "ALUNO" else "GERAL") } // "ALUNO" or "GERAL"
+    var selectedAluno by remember { mutableStateOf<AlunoNecessidadeEspecial?>(alunos.firstOrNull()) }
+    var selectedSerie by remember { mutableStateOf("3º Ano Fundamental") }
+    var selectedPerfil by remember { mutableStateOf("REGULAR") }
+    var selectedMateria by remember { mutableStateOf("Língua Portuguesa") }
+    var customAssunto by remember { mutableStateOf("") }
+    var qtdQuestoes by remember { mutableStateOf("4") }
+    var customTitulo by remember { mutableStateOf("") }
+    var expandedSerie by remember { mutableStateOf(false) }
 
     val filteredProvas = provas.filter { p ->
         val query = searchQuery.lowercase().trim()
@@ -1708,14 +1824,14 @@ fun ProvasScreen(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "Provas completas por aluno e matéria",
+                        text = "Provas completas adaptadas por aluno e matéria",
                         fontSize = 12.sp,
                         color = Color(0xFF666666)
                     )
                 }
 
                 Button(
-                    onClick = { viewModel.setScreen("nova_prova") },
+                    onClick = { showCreateProvaDialog = true },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5)),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
@@ -1725,7 +1841,7 @@ fun ProvasScreen(
                 ) {
                     Icon(Icons.Default.Add, contentDescription = "Nova Prova", modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Criar Nova Prova", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("✨ Gerar Nova Prova com IA", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
 
                 // Campo de Busca
@@ -1783,9 +1899,9 @@ fun ProvasScreen(
             item {
                 ProvalinoEmptyState(
                     title = if (searchQuery.isBlank()) "Sua Biblioteca de Provas está Vazia" else "Nenhum resultado encontrado",
-                    description = if (searchQuery.isBlank()) "Sua coleção de atividades e avaliações adaptadas para alunos inclusivos ficará salva aqui! Que tal gerar sua primeira avaliação agora?" else "Não encontramos resultados para '$searchQuery'. Tente ajustar sua busca.",
-                    buttonText = if (searchQuery.isBlank()) "⚡ Gerar Atividade com IA" else null,
-                    onButtonClick = if (searchQuery.isBlank()) { { viewModel.setScreen("home") } } else null
+                    description = if (searchQuery.isBlank()) "Sua coleção de avaliações e atividades adaptadas ficará salva aqui! Que tal gerar sua primeira prova completa agora?" else "Não encontramos resultados para '$searchQuery'. Tente ajustar sua busca.",
+                    buttonText = if (searchQuery.isBlank()) "✨ Gerar Prova com Provalino AI" else null,
+                    onButtonClick = if (searchQuery.isBlank()) { { showCreateProvaDialog = true } } else null
                 )
             }
         } else {
@@ -1893,6 +2009,259 @@ fun ProvasScreen(
                 description = "Monetização e parcerias ativas para manter o Provalino AI gratuito para professores."
             )
         }
+    }
+
+    if (showCreateProvaDialog) {
+        val bnccSubjects = listOf(
+            "Língua Portuguesa", "Matemática", "Ciências",
+            "História", "Geografia", "Artes", "Educação Física", "Inglês"
+        )
+        val seriesOptions = listOf(
+            "1º Ano Fundamental", "2º Ano Fundamental", "3º Ano Fundamental",
+            "4º Ano Fundamental", "5º Ano Fundamental", "6º Ano Fundamental",
+            "7º Ano Fundamental", "8º Ano Fundamental", "9º Ano Fundamental",
+            "1º Ano Ensino Médio", "2º Ano Ensino Médio", "3º Ano Ensino Médio"
+        )
+        val perfisAdaptacao = listOf(
+            "REGULAR" to "🎓 Regular / Turma Toda",
+            "TEA" to "🧩 TEA (Autismo / DUA)",
+            "TDAH" to "⚡ TDAH (Foco e Síntese)",
+            "DISLEXIA" to "📖 Dislexia (Leitura Clara)",
+            "SUPORTE_COGNITIVO" to "🌸 Apoio Cognitivo / Down",
+            "ACESSIBILIDADE_VISUAL" to "👁️ Acessibilidade Visual",
+            "ACESSIBILIDADE_LINGUISTICA" to "👂 Acessibilidade Linguística",
+            "SUPORTE_MULTISSENSORIAL" to "🤝 Multissensorial",
+            "ALTAS_HABILIDADES" to "🚀 Altas Habilidades / Superdotação"
+        )
+
+        AlertDialog(
+            onDismissRequest = { showCreateProvaDialog = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("✨", fontSize = 24.sp)
+                    Text("Gerar Prova Pronta com Provalino AI", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Alternância: Aluno da Carteira vs Geração para Turma/Geral
+                    if (alunos.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(10.dp))
+                                .padding(4.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            Button(
+                                onClick = { generationMode = "ALUNO" },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (generationMode == "ALUNO") MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    contentColor = if (generationMode == "ALUNO") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.weight(1f).height(36.dp),
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text("🧑‍🎓 Aluno da Sala", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Button(
+                                onClick = { generationMode = "GERAL" },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (generationMode == "GERAL") MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    contentColor = if (generationMode == "GERAL") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.weight(1f).height(36.dp),
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text("🏫 Turma / Geral", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    if (generationMode == "ALUNO" && alunos.isNotEmpty()) {
+                        Text("Selecione o Aluno Inclusivo:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            alunos.forEach { aluno ->
+                                val isSelected = selectedAluno?.id == aluno.id
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
+                                        .border(1.dp, if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            selectedAluno = aluno
+                                            selectedSerie = aluno.serieAno.ifBlank { "3º Ano Fundamental" }
+                                            selectedPerfil = aluno.necessidade
+                                        }
+                                        .padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(aluno.avatarEmoji.ifBlank { "🧩" }, fontSize = 18.sp)
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(aluno.nome, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+                                        Text("${aluno.serieAno} • ${aluno.necessidade} (${aluno.nivelSuporte})", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    RadioButton(
+                                        selected = isSelected,
+                                        onClick = {
+                                            selectedAluno = aluno
+                                            selectedSerie = aluno.serieAno.ifBlank { "3º Ano Fundamental" }
+                                            selectedPerfil = aluno.necessidade
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        // Modo Geral / Perfil Personalizado
+                        Text("Série / Ano Escolar:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(
+                                onClick = { expandedSerie = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(selectedSerie, color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp)
+                                    Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                                }
+                            }
+                            DropdownMenu(
+                                expanded = expandedSerie,
+                                onDismissRequest = { expandedSerie = false }
+                            ) {
+                                seriesOptions.forEach { serie ->
+                                    DropdownMenuItem(
+                                        text = { Text(serie, fontSize = 12.sp) },
+                                        onClick = {
+                                            selectedSerie = serie
+                                            expandedSerie = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        Text("Perfil Pedagógico da Prova:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            perfisAdaptacao.forEach { (code, label) ->
+                                val isSel = selectedPerfil == code
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(if (isSel) MaterialTheme.colorScheme.primaryContainer else Color.Transparent, RoundedCornerShape(8.dp))
+                                        .clickable { selectedPerfil = code }
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(selected = isSel, onClick = { selectedPerfil = code })
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(label, fontSize = 12.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal, color = MaterialTheme.colorScheme.onSurface)
+                                }
+                            }
+                        }
+                    }
+
+                    // Matéria BNCC
+                    Text("Matéria / Componente Curricular (BNCC):", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        bnccSubjects.forEach { mat ->
+                            val isSel = selectedMateria == mat
+                            Box(
+                                modifier = Modifier
+                                    .background(if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
+                                    .clickable { selectedMateria = mat }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Text(mat, color = if (isSel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    // Assunto / Conteúdo
+                    OutlinedTextField(
+                        value = customAssunto,
+                        onValueChange = { customAssunto = it },
+                        label = { Text("Conteúdo / Assunto (Ex: Interpretação de Texto, Frações)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    // Quantidade de Questões
+                    OutlinedTextField(
+                        value = qtdQuestoes,
+                        onValueChange = { qtdQuestoes = it },
+                        label = { Text("Qtd de Questões (1 a 20)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val count = qtdQuestoes.toIntOrNull() ?: 4
+                        if (count !in 1..20) {
+                            Toast.makeText(context, "Digite uma quantidade entre 1 e 20 questões.", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        if (customAssunto.isBlank()) {
+                            Toast.makeText(context, "Por favor, descreva o conteúdo ou assunto da prova.", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+
+                        val finalSubject = "$selectedMateria - $customAssunto"
+                        if (generationMode == "ALUNO" && selectedAluno != null) {
+                            val aluno = selectedAluno!!
+                            viewModel.generateAndCreateProvaForAluno(
+                                aluno = aluno,
+                                subject = finalSubject,
+                                grade = aluno.serieAno.ifBlank { selectedSerie },
+                                count = count
+                            )
+                            Toast.makeText(context, "Gerando prova adaptada para ${aluno.nome}...", Toast.LENGTH_SHORT).show()
+                        } else {
+                            viewModel.generateAndCreateProvaCustom(
+                                titulo = "Avaliação: $selectedMateria",
+                                subject = finalSubject,
+                                grade = selectedSerie,
+                                profile = selectedPerfil,
+                                count = count
+                            )
+                            Toast.makeText(context, "Gerando avaliação completa com Provalino AI...", Toast.LENGTH_SHORT).show()
+                        }
+                        showCreateProvaDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5))
+                ) {
+                    Text("✨ Gerar Prova Completa (2 🪙)", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateProvaDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
     }
 }
 
@@ -2172,15 +2541,16 @@ fun DetalhesProvaScreen(
 
     Column(modifier = Modifier.fillMaxSize().background(Color(0xFFF7F9FC))) {
         // Top Header - Compacto e elegante para focar na prova
-        Card(
+        ClayCard(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            shape = RoundedCornerShape(12.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            backgroundColor = Color.White,
+            borderColor = ClayColors.TealLight,
+            shape = RoundedCornerShape(16.dp),
+            elevation = 3.dp
         ) {
-            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -2188,58 +2558,75 @@ fun DetalhesProvaScreen(
                 ) {
                     Text(
                         text = "📝 ${prova.titulo}",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        color = Color(0xFF1E88E5),
+                        fontWeight = FontWeight.Black,
+                        fontSize = 14.sp,
+                        color = ClayColors.TealDark,
                         modifier = Modifier.weight(1f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Button(
+                    ClayButton(
                         onClick = onVoltar,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF78909C)),
-                        shape = RoundedCornerShape(6.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        modifier = Modifier.height(30.dp)
+                        backgroundColor = ClayColors.GreyLight,
+                        darkShadowColor = ClayColors.GreyDark,
+                        contentColor = ClayColors.TextPrimary,
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier.height(34.dp)
                     ) {
-                        Text("Voltar", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text("↩ Voltar", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
-                OutlinedTextField(
+                ClayTextField(
                     value = nomeEscola,
                     onValueChange = { nomeEscola = it },
-                    label = { Text("Nome da Escola (cabeçalho da prova)", fontSize = 11.sp) },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(6.dp),
-                    singleLine = true,
-                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
+                    label = "Nome da Escola (cabeçalho da prova)",
+                    placeholder = "Ex: E.E. Professor João da Silva",
+                    accentColor = ClayColors.Teal
                 )
             }
         }
 
-        TabRow(
-            selectedTabIndex = detailTab,
-            containerColor = Color.White,
-            contentColor = Color(0xFF1E88E5)
+        // Tactile Clay Tabs
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Tab(
+            ClayTabButton(
                 selected = detailTab == 0,
                 onClick = { detailTab = 0 },
-                text = { Text("👁️ Visualização & PDF", fontWeight = FontWeight.Bold) },
-                modifier = Modifier.testTag("tab_detalhe_visualizar")
+                title = "Visualização & PDF",
+                icon = "👁️",
+                selectedColor = ClayColors.Green,
+                selectedDarkShadow = ClayColors.GreenDark,
+                modifier = Modifier
+                    .weight(1.2f)
+                    .testTag("tab_detalhe_visualizar")
             )
-            Tab(
+            ClayTabButton(
                 selected = detailTab == 1,
                 onClick = { detailTab = 1 },
-                text = { Text("✍️ Dar Notas", fontWeight = FontWeight.Bold) },
-                modifier = Modifier.testTag("tab_detalhe_corrigir")
+                title = "Dar Notas",
+                icon = "✍️",
+                selectedColor = ClayColors.Blue,
+                selectedDarkShadow = ClayColors.BlueDark,
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("tab_detalhe_corrigir")
             )
-            Tab(
+            ClayTabButton(
                 selected = detailTab == 2,
                 onClick = { detailTab = 2 },
-                text = { Text("📊 Boletim (${grades.size})", fontWeight = FontWeight.Bold) },
-                modifier = Modifier.testTag("tab_detalhe_boletim")
+                title = "Boletim (${grades.size})",
+                icon = "📊",
+                selectedColor = ClayColors.Orange,
+                selectedDarkShadow = ClayColors.OrangeDark,
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("tab_detalhe_boletim")
             )
         }
 
@@ -2254,28 +2641,52 @@ fun DetalhesProvaScreen(
                 0 -> { // --- VISUALIZAR E EXPORTAR PDF ---
                     item {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            // Action Buttons: Imprimir, Compartilhar e Copiar
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(
+                            // Action Buttons: Imprimir, Compartilhar PDF, Compartilhar Texto e Copiar
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                ClayButton(
                                     onClick = {
                                         val htmlContent = buildHtmlExamContent(prova, associatedTurma, loadedQuestoes, nomeEscola)
                                         val webView = WebView(context).apply {
                                             settings.javaScriptEnabled = true
-                                            loadDataWithBaseURL(null, htmlContent, "text/HTML", "UTF-8", null)
+                                            setBackgroundColor(android.graphics.Color.WHITE)
+                                            loadDataWithBaseURL(null, htmlContent, "text/html; charset=utf-8", "UTF-8", null)
                                         }
                                         val printManager = context.getSystemService(Context.PRINT_SERVICE) as PrintManager
                                         val jobName = "${prova.titulo} - Provalino"
                                         val printAdapter = webView.createPrintDocumentAdapter(jobName)
                                         printManager.print(jobName, printAdapter, PrintAttributes.Builder().setMediaSize(PrintAttributes.MediaSize.ISO_A4).build())
                                     },
-                                    modifier = Modifier.weight(1f).height(48.dp),
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F))
+                                    modifier = Modifier.weight(1f).height(46.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    backgroundColor = ClayColors.Red,
+                                    darkShadowColor = ClayColors.RedDark,
+                                    contentPadding = PaddingValues(horizontal = 4.dp)
                                 ) {
-                                    Text("🖨️ Imprimir", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+                                    Text("🖨️ Imprimir", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 12.sp)
                                 }
 
-                                Button(
+                                ClayButton(
+                                    onClick = {
+                                        PdfShareHelper.shareExamAsPdf(
+                                            context = context,
+                                            prova = prova,
+                                            turma = associatedTurma,
+                                            questoes = loadedQuestoes,
+                                            nomeEscola = nomeEscola
+                                        )
+                                    },
+                                    modifier = Modifier.weight(1.2f).height(46.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    backgroundColor = ClayColors.Blue,
+                                    darkShadowColor = ClayColors.BlueDark,
+                                    contentPadding = PaddingValues(horizontal = 4.dp)
+                                ) {
+                                    Icon(Icons.Default.Share, contentDescription = "Compartilhar PDF", tint = Color.White, modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("📤 PDF", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 12.sp)
+                                }
+
+                                ClayButton(
                                     onClick = {
                                         val text = buildPrintableExamText(prova, associatedTurma, loadedQuestoes, nomeEscola)
                                         val sendIntent = android.content.Intent().apply {
@@ -2283,37 +2694,40 @@ fun DetalhesProvaScreen(
                                             putExtra(android.content.Intent.EXTRA_TEXT, text)
                                             type = "text/plain"
                                         }
-                                        val shareIntent = android.content.Intent.createChooser(sendIntent, "Compartilhar Prova Adaptada")
+                                        val shareIntent = android.content.Intent.createChooser(sendIntent, "Compartilhar Prova Adaptada (Texto)")
                                         context.startActivity(shareIntent)
                                     },
-                                    modifier = Modifier.weight(1.1f).height(48.dp),
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0288D1))
+                                    modifier = Modifier.weight(1f).height(46.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    backgroundColor = ClayColors.Teal,
+                                    darkShadowColor = ClayColors.TealDark,
+                                    contentPadding = PaddingValues(horizontal = 4.dp)
                                 ) {
-                                    Icon(Icons.Default.Share, contentDescription = "Compartilhar", tint = Color.White, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Compartilhar", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+                                    Text("💬 Texto", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 12.sp)
                                 }
 
-                                Button(
+                                ClayButton(
                                     onClick = {
                                         val text = buildPrintableExamText(prova, associatedTurma, loadedQuestoes, nomeEscola)
                                         clipboardManager.setText(AnnotatedString(text))
                                         Toast.makeText(context, "Prova copiada para a área de transferência!", Toast.LENGTH_LONG).show()
                                     },
-                                    modifier = Modifier.weight(0.9f).height(48.dp),
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))
+                                    modifier = Modifier.weight(0.9f).height(46.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    backgroundColor = ClayColors.Green,
+                                    darkShadowColor = ClayColors.GreenDark,
+                                    contentPadding = PaddingValues(horizontal = 4.dp)
                                 ) {
-                                    Text("📋 Copiar", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    Text("📋 Copiar", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                 }
                             }
 
-                            Button(
+                            ClayButton(
                                 onClick = { showBancoDialog = true },
                                 modifier = Modifier.fillMaxWidth().height(48.dp),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8E24AA))
+                                shape = RoundedCornerShape(14.dp),
+                                backgroundColor = ClayColors.Purple,
+                                darkShadowColor = ClayColors.PurpleDark
                             ) {
                                 Icon(Icons.Default.Add, contentDescription = "Incluir", tint = Color.White)
                                 Spacer(modifier = Modifier.width(6.dp))
@@ -2324,9 +2738,9 @@ fun DetalhesProvaScreen(
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = CardDefaults.cardColors(containerColor = Color.White),
-                                shape = RoundedCornerShape(12.dp),
+                                shape = RoundedCornerShape(16.dp),
                                 elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                                border = BorderStroke(1.dp, Color(0xFFE0E0E0))
+                                border = BorderStroke(1.5.dp, ClayColors.GreyLight)
                             ) {
                                 Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                                     // Header with Provalino Logo
@@ -2344,14 +2758,14 @@ fun DetalhesProvaScreen(
                                     HorizontalDivider(color = Color.DarkGray, thickness = 1.5.dp)
 
                                     // Info box (No student name line and no instructions as requested!)
-                                    Column(modifier = Modifier.fillMaxWidth().background(Color(0xFFFAFAFA), RoundedCornerShape(8.dp)).padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        Text(text = "Data: ____/____/_______  |  Turma: ${associatedTurma?.nome ?: "Geral"}", fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                                        Text(text = "Matéria: ${associatedTurma?.materia ?: "Geral"}", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                    Column(modifier = Modifier.fillMaxWidth().background(Color(0xFFF1F5F9), RoundedCornerShape(8.dp)).padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(text = "Data: ____/____/_______  |  Turma: ${associatedTurma?.nome ?: "Geral"}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1E293B))
+                                        Text(text = "Matéria: ${associatedTurma?.materia ?: "Geral"}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1E293B))
                                     }
 
                                     Spacer(modifier = Modifier.height(4.dp))
 
-                                    Text(text = prova.titulo, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF222222))
+                                    Text(text = prova.titulo, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF0F172A))
 
                                     // Questions List
                                     loadedQuestoes.forEachIndexed { idx, q ->
@@ -2360,23 +2774,48 @@ fun DetalhesProvaScreen(
                                                 text = "Questão ${idx + 1}: ${q.enunciado}",
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 13.sp,
-                                                color = Color(0xFF111111)
+                                                color = Color(0xFF0F172A)
                                             )
-                                            val cleanSupp = PictogramInjector.cleanSupportText(q.pictogramasSuporte)
-                                            if (cleanSupp.isNotBlank()) {
-                                                Text(text = "🎨 Suporte Visual: $cleanSupp", fontSize = 12.sp, color = Color(0xFF00796B), fontWeight = FontWeight.SemiBold)
+                                            val isCaaProfile = q.perfilAdaptacao.uppercase() in listOf(
+                                                "TEA", "AUTISMO", "DEF_INTELECTUAL", "SUPORTE_COGNITIVO", "SINDROME_DOWN"
+                                            )
+                                            if (isCaaProfile && q.pictogramasSuporte.isNotBlank()) {
+                                                PictogramSupportRow(
+                                                    rawPictogramText = q.pictogramasSuporte,
+                                                    modifier = Modifier.padding(vertical = 4.dp)
+                                                )
                                             }
                                             if (q.tipo == "MULTIPLE_CHOICE") {
-                                                if (q.opcaoA.isNotBlank()) Text(text = "   A) ${formatOptionText(q.opcaoA, "A")}", fontSize = 12.sp)
-                                                if (q.opcaoB.isNotBlank()) Text(text = "   B) ${formatOptionText(q.opcaoB, "B")}", fontSize = 12.sp)
-                                                if (q.opcaoC.isNotBlank()) Text(text = "   C) ${formatOptionText(q.opcaoC, "C")}", fontSize = 12.sp)
-                                                if (q.opcaoD.isNotBlank()) Text(text = "   D) ${formatOptionText(q.opcaoD, "D")}", fontSize = 12.sp)
+                                                Column(verticalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.padding(start = 4.dp, top = 2.dp)) {
+                                                    if (q.opcaoA.isNotBlank()) Text(text = "A) ${formatOptionText(q.opcaoA, "A")}", fontSize = 13.sp, color = Color(0xFF0F172A), fontWeight = FontWeight.SemiBold)
+                                                    if (q.opcaoB.isNotBlank()) Text(text = "B) ${formatOptionText(q.opcaoB, "B")}", fontSize = 13.sp, color = Color(0xFF0F172A), fontWeight = FontWeight.SemiBold)
+                                                    if (q.opcaoC.isNotBlank()) Text(text = "C) ${formatOptionText(q.opcaoC, "C")}", fontSize = 13.sp, color = Color(0xFF0F172A), fontWeight = FontWeight.SemiBold)
+                                                    if (q.opcaoD.isNotBlank()) Text(text = "D) ${formatOptionText(q.opcaoD, "D")}", fontSize = 13.sp, color = Color(0xFF0F172A), fontWeight = FontWeight.SemiBold)
+                                                }
+                                            } else if (q.tipo == "TRUE_FALSE") {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth().padding(start = 4.dp, top = 4.dp, bottom = 4.dp),
+                                                    horizontalArrangement = Arrangement.spacedBy(20.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                        Box(modifier = Modifier.size(18.dp).border(1.5.dp, Color(0xFF0F172A), RoundedCornerShape(4.dp)))
+                                                        Text("Verdadeiro (V)", fontSize = 13.sp, color = Color(0xFF0F172A), fontWeight = FontWeight.Bold)
+                                                    }
+                                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                        Box(modifier = Modifier.size(18.dp).border(1.5.dp, Color(0xFF0F172A), RoundedCornerShape(4.dp)))
+                                                        Text("Falso (F)", fontSize = 13.sp, color = Color(0xFF0F172A), fontWeight = FontWeight.Bold)
+                                                    }
+                                                }
                                             } else {
-                                                Box(modifier = Modifier.fillMaxWidth().height(60.dp).background(Color(0xFFFAFAFA), RoundedCornerShape(6.dp)).border(1.dp, Color(0xFFCCCCCC), RoundedCornerShape(6.dp)))
+                                                Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(top = 2.dp)) {
+                                                    Text("[Resposta do Aluno]:", fontSize = 11.sp, color = Color(0xFF475569), fontStyle = FontStyle.Italic, fontWeight = FontWeight.Medium)
+                                                    Box(modifier = Modifier.fillMaxWidth().height(65.dp).background(Color(0xFFFAFAFA), RoundedCornerShape(6.dp)).border(1.dp, Color(0xFF94A3B8), RoundedCornerShape(6.dp)))
+                                                }
                                             }
                                         }
                                         if (idx < loadedQuestoes.size - 1) {
-                                            HorizontalDivider(color = Color(0xFFE0E0E0), thickness = 0.5.dp)
+                                            HorizontalDivider(color = Color(0xFFCBD5E1), thickness = 1.dp)
                                         }
                                     }
 
@@ -2552,37 +2991,81 @@ fun formatOptionText(raw: String, prefixLetter: String): String {
 
 fun buildHtmlExamContent(prova: Prova, turma: Turma?, questoes: List<Questao>, escola: String): String {
     val sb = java.lang.StringBuilder()
-    sb.append("<html><head><meta charset='utf-8'><style>")
-    sb.append("body { font-family: Arial, sans-serif; padding: 20px; color: #333; line-height: 1.5; }")
-    sb.append(".header { border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }")
-    sb.append(".escola { font-size: 16px; font-weight: bold; }")
-    sb.append(".logo { font-size: 14px; font-weight: bold; color: #5D4037; }")
-    sb.append(".info { background: #f9f9f9; padding: 10px; border-radius: 6px; margin-bottom: 20px; font-size: 13px; }")
-    sb.append(".titulo { font-size: 18px; font-weight: bold; text-align: center; margin-bottom: 15px; }")
-    sb.append(".questao { margin-bottom: 18px; font-size: 13px; }")
-    sb.append(".footer { margin-top: 40px; text-align: center; font-size: 10px; color: #777; font-style: italic; border-top: 1px solid #ddd; padding-top: 10px; }")
+    sb.append("<!DOCTYPE html><html><head><meta charset='utf-8'>")
+    sb.append("<meta name='viewport' content='width=device-width, initial-scale=1.0'>")
+    sb.append("<style>")
+    sb.append("@media print { body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } }")
+    sb.append("* { box-sizing: border-box; }")
+    sb.append("body { font-family: Arial, Helvetica, sans-serif; padding: 20px; color: #000000 !important; background-color: #ffffff !important; line-height: 1.4; margin: 0; }")
+    sb.append(".header { border-bottom: 2px solid #111827; padding-bottom: 10px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }")
+    sb.append(".escola { font-size: 15px; font-weight: bold; color: #000000 !important; }")
+    sb.append(".sub-header { font-size: 12px; font-weight: bold; color: #0284C7 !important; }")
+    sb.append(".logo { font-size: 13px; font-weight: bold; color: #5D4037 !important; }")
+    sb.append(".info { background: #F1F5F9; padding: 10px 12px; border-radius: 6px; margin-bottom: 18px; font-size: 12px; font-weight: bold; color: #000000 !important; border: 1px solid #CBD5E1; }")
+    sb.append(".titulo { font-size: 16px; font-weight: bold; text-align: center; margin-bottom: 18px; color: #000000 !important; }")
+    sb.append(".questao { margin-bottom: 20px; font-size: 13px; color: #000000 !important; clear: both; page-break-inside: avoid; }")
+    sb.append(".enunciado { font-weight: bold; font-size: 13px; color: #000000 !important; line-height: 1.5; }")
+    sb.append(".caa-box { margin: 8px 0 10px 0; padding: 8px 10px; background-color: #F8FAFC; border: 1.5px solid #CBD5E1; border-radius: 8px; clear: both; }")
+    sb.append(".caa-title { font-size: 11px; font-weight: 800; color: #0F766E !important; margin-bottom: 6px; }")
+    sb.append(".caa-cards { display: flex; flex-wrap: wrap; gap: 8px; }")
+    sb.append(".caa-card { display: inline-block; background: #FFFFFF; border: 1.5px solid #0F766E; border-radius: 6px; padding: 4px 8px; text-align: center; min-width: 55px; }")
+    sb.append(".caa-sym { font-size: 22px; line-height: 26px; }")
+    sb.append(".caa-lbl { font-size: 9px; font-weight: 800; color: #0F172A !important; margin-top: 2px; }")
+    sb.append(".opcoes-box { margin: 8px 0 4px 8px; clear: both; }")
+    sb.append(".opcao { font-size: 13px; font-weight: 600; color: #000000 !important; margin: 5px 0; line-height: 1.4; }")
+    sb.append(".tf-row { font-size: 13px; font-weight: bold; color: #000000 !important; margin: 8px 0 6px 8px; clear: both; }")
+    sb.append(".discursiva-box { border: 1.5px solid #94A3B8; height: 70px; margin-top: 6px; border-radius: 6px; background-color: #FAFAFA; clear: both; }")
+    sb.append(".footer { margin-top: 35px; text-align: center; font-size: 10px; color: #555555 !important; font-style: italic; border-top: 1px solid #CBD5E1; padding-top: 8px; clear: both; }")
     sb.append("</style></head><body>")
-    sb.append("<div class='header'><div><div class='escola'>" + escola.uppercase() + "</div><div>AVALIAÇÃO ADAPTADA & INCLUSIVA</div></div><div class='logo'>🦉 PROVALINO</div></div>")
+    sb.append("<div class='header'><div><div class='escola'>" + escola.uppercase() + "</div><div class='sub-header'>AVALIAÇÃO ADAPTADA & INCLUSIVA</div></div><div class='logo'>🦉 PROVALINO</div></div>")
     sb.append("<div class='info'>Data: ____/____/_______ &nbsp;|&nbsp; Turma: " + (turma?.nome ?: "Geral") + " &nbsp;|&nbsp; Matéria: " + (turma?.materia ?: "Geral") + "</div>")
     sb.append("<div class='titulo'>" + prova.titulo + "</div>")
     questoes.forEachIndexed { index, q ->
         sb.append("<div class='questao'>")
-        sb.append("<b>Questão " + (index + 1) + ":</b> " + q.enunciado + "<br>")
-        val cleanSupport = PictogramInjector.cleanSupportText(q.pictogramasSuporte)
-        if (cleanSupport.isNotBlank()) {
-            sb.append("<div style='display: inline-block; background-color: #F0FDF4; border: 1px solid #86EFAC; padding: 4px 8px; border-radius: 6px; margin: 4px 0 8px 0; font-size: 12px; color: #166534; font-weight: bold;'>")
-            sb.append("🎨 Suporte Visual: " + cleanSupport)
-            sb.append("</div><br>")
+        val cleanEnunciado = PictogramInjector.removeTechnicalTags(q.enunciado)
+        sb.append("<div class='enunciado'><b>Questão " + (index + 1) + ":</b> " + cleanEnunciado + "</div>")
+        val isCaaProfile = q.perfilAdaptacao.uppercase() in listOf(
+            "TEA", "AUTISMO", "DEF_INTELECTUAL", "SUPORTE_COGNITIVO", "SINDROME_DOWN"
+        )
+        if (isCaaProfile && q.pictogramasSuporte.isNotBlank()) {
+            val terms = PictogramInjector.extractTerms(q.pictogramasSuporte)
+            if (terms.isNotEmpty()) {
+                sb.append("<div class='caa-box'>")
+                sb.append("<div class='caa-title'>🧩 CARTÕES VISUAIS DE APOIO (CAA):</div>")
+                sb.append("<div class='caa-cards'>")
+                terms.forEach { term ->
+                    val local = PictogramCatalog.find(term)
+                    val sym = local?.symbol ?: PictogramCatalog.resolveSymbol(term)
+                    val rawLbl = local?.label ?: term
+                    val lbl = rawLbl
+                        .replace(Regex("""\[(?:Pictograma|Imagem|Foto|Fotografia|Desenho|CAA|Visual|Ícone|Icone|Símbolo|Simbolo|Card)(?:[/\s\-_]+(?:Pictograma|Imagem|Foto|Fotografia|Desenho|CAA|Visual|Ícone|Icone|Símbolo|Simbolo|Card))?:\s*""", RegexOption.IGNORE_CASE), "")
+                        .replace("[", "")
+                        .replace("]", "")
+                        .replace("ARASAAC:", "")
+                        .replace(Regex("""[\p{So}\p{Sk}\p{Sm}\p{Cs}\p{Cn}]"""), "")
+                        .trim()
+                        .uppercase()
+                    if (lbl.isNotBlank()) {
+                        sb.append("<div class='caa-card'>")
+                        sb.append("<div class='caa-sym'>").append(sym).append("</div>")
+                        sb.append("<div class='caa-lbl'>").append(lbl).append("</div>")
+                        sb.append("</div>")
+                    }
+                }
+                sb.append("</div></div>")
+            }
         }
         if (q.tipo == "MULTIPLE_CHOICE") {
-            if (q.opcaoA.isNotBlank()) sb.append("&nbsp;&nbsp;A) " + formatOptionText(q.opcaoA, "A") + "<br>")
-            if (q.opcaoB.isNotBlank()) sb.append("&nbsp;&nbsp;B) " + formatOptionText(q.opcaoB, "B") + "<br>")
-            if (q.opcaoC.isNotBlank()) sb.append("&nbsp;&nbsp;C) " + formatOptionText(q.opcaoC, "C") + "<br>")
-            if (q.opcaoD.isNotBlank()) sb.append("&nbsp;&nbsp;D) " + formatOptionText(q.opcaoD, "D") + "<br>")
+            sb.append("<div class='opcoes-box'>")
+            if (q.opcaoA.isNotBlank()) sb.append("<div class='opcao'><b>A)</b> " + formatOptionText(q.opcaoA, "A") + "</div>")
+            if (q.opcaoB.isNotBlank()) sb.append("<div class='opcao'><b>B)</b> " + formatOptionText(q.opcaoB, "B") + "</div>")
+            if (q.opcaoC.isNotBlank()) sb.append("<div class='opcao'><b>C)</b> " + formatOptionText(q.opcaoC, "C") + "</div>")
+            if (q.opcaoD.isNotBlank()) sb.append("<div class='opcao'><b>D)</b> " + formatOptionText(q.opcaoD, "D") + "</div>")
+            sb.append("</div>")
         } else if (q.tipo == "TRUE_FALSE") {
-            sb.append("<br>&nbsp;&nbsp;( &nbsp; ) Verdadeiro &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ( &nbsp; ) Falso<br>")
+            sb.append("<div class='tf-row'>&nbsp;&nbsp;<b>( &nbsp; ) Verdadeiro (V)</b> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>( &nbsp; ) Falso (F)</b></div>")
         } else {
-            sb.append("<br><span style='font-size: 11px; color: #555; font-style: italic;'>[Questão Discursiva - Escreva sua resposta dissertativa abaixo]</span><div style='border: 1px solid #ccc; height: 80px; margin-top: 5px; border-radius: 4px;'></div>")
+            sb.append("<div style='margin-top: 6px; font-size: 11px; color: #475569; font-style: italic;'>[Questão Discursiva - Escreva sua resposta abaixo]:</div><div class='discursiva-box'></div>")
         }
         sb.append("</div>")
     }
@@ -2601,9 +3084,12 @@ fun buildPrintableExamText(prova: Prova, turma: Turma?, questoes: List<Questao>,
     sb.append("                 " + prova.titulo.uppercase() + "\n\n")
     questoes.forEachIndexed { index, q ->
         sb.append("QUESTÃO " + (index + 1) + ": " + q.enunciado + "\n")
+        val isCaaProfile = q.perfilAdaptacao.uppercase() in listOf(
+            "TEA", "AUTISMO", "DEF_INTELECTUAL", "SUPORTE_COGNITIVO", "SINDROME_DOWN"
+        )
         val cleanSupport = PictogramInjector.cleanSupportText(q.pictogramasSuporte)
-        if (cleanSupport.isNotBlank()) {
-            sb.append("Suporte Visual: " + cleanSupport + "\n")
+        if (isCaaProfile && cleanSupport.isNotBlank()) {
+            sb.append("  [Suporte Visual (CAA): " + cleanSupport + "]\n")
         }
         if (q.tipo == "MULTIPLE_CHOICE") {
             sb.append("  A) " + formatOptionText(q.opcaoA, "A") + "\n")
@@ -2875,12 +3361,14 @@ fun CarteirasScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var editingAlunoId by remember { mutableStateOf<Int?>(null) }
     var expandedSerie by remember { mutableStateOf(false) }
+    var expandedNecessidade by remember { mutableStateOf(false) }
+    var expandedSeveridade by remember { mutableStateOf(false) }
 
-    // Form fields
+    // Form fields (iniciam vazios para novo cadastro)
     var nome by remember { mutableStateOf("") }
-    var serieAno by remember { mutableStateOf("3º Ano Fundamental") }
-    var necessidade by remember { mutableStateOf("TEA") }
-    var nivelSuporte by remember { mutableStateOf("Nível 1 (Leve / Suporte Baixo)") }
+    var serieAno by remember { mutableStateOf("") }
+    var necessidade by remember { mutableStateOf("") }
+    var nivelSuporte by remember { mutableStateOf("") }
     var observacoes by remember { mutableStateOf("") }
     var avatarEmoji by remember { mutableStateOf("🧩") }
 
@@ -2896,7 +3384,10 @@ fun CarteirasScreen(
         "Língua Portuguesa" to listOf("Leitura e Compreensão de Textos", "Produção de Textos", "Fonética e Ortografia", "Oralidade e Conversação", "Análise Linguística e Semiótica"),
         "Ciências" to listOf("Matéria e Energia", "Vida e Evolução", "Terra e Universo"),
         "História" to listOf("O Mundo Pessoal e a Família", "Tempo, Memória e Identidade", "Povos e Culturas"),
-        "Geografia" to listOf("O Lugar e a Paisagem", "Dinâmicas da Natureza e Sociedade", "Cartografia Escolar e Orientação")
+        "Geografia" to listOf("O Lugar e a Paisagem", "Dinâmicas da Natureza e Sociedade", "Cartografia Escolar e Orientação"),
+        "Artes" to listOf("Artes Visuais", "Dança", "Música", "Teatro", "Artes Integradas e Expressão Criativa"),
+        "Educação Física" to listOf("Brincadeiras e Jogos", "Esportes e Cooperação", "Ginásticas e Coordenação", "Danças e Expressão Corporal", "Práticas Corporais"),
+        "Inglês" to listOf("Oralidade e Conversação", "Leitura e Vocabulário", "Escrita e Estruturas Básicas", "Dimensão Intercultural")
     )
 
     val necessidadesList = listOf(
@@ -2985,9 +3476,9 @@ fun CarteirasScreen(
                             } else {
                                 editingAlunoId = null
                                 nome = ""
-                                serieAno = "3º Ano Fundamental"
-                                necessidade = "TEA"
-                                nivelSuporte = "Nível 1 (Leve / Suporte Baixo)"
+                                serieAno = ""
+                                necessidade = ""
+                                nivelSuporte = ""
                                 observacoes = ""
                                 avatarEmoji = "🧩"
                                 showAddDialog = true
@@ -3013,7 +3504,16 @@ fun CarteirasScreen(
                     title = "Carteira de Alunos Inclusivos Vazia",
                     description = "Cadastre seus alunos com necessidades educacionais especiais para que a IA do Provalino crie atividades perfeitamente adaptadas ao perfil pedagógico de cada estudante!",
                     buttonText = "➕ Posicionar Aluno na Carteira",
-                    onButtonClick = { showAddDialog = true }
+                    onButtonClick = {
+                        editingAlunoId = null
+                        nome = ""
+                        serieAno = ""
+                        necessidade = ""
+                        nivelSuporte = ""
+                        observacoes = ""
+                        avatarEmoji = "🧩"
+                        showAddDialog = true
+                    }
                 )
             }
         } else {
@@ -3034,11 +3534,13 @@ fun CarteirasScreen(
                                 width = 2.dp,
                                 color = when (aluno.necessidade) {
                                     "TEA" -> Color(0xFF90CAF9)
+                                    "SINDROME_DOWN" -> Color(0xFFFFF59D)
                                     "TDAH" -> Color(0xFFFFE082)
                                     "DISLEXIA" -> Color(0xFFCE93D8)
+                                    "DEF_INTELECTUAL" -> Color(0xFFFFCC80)
+                                    "BAIXA_VISAO", "ACESSIBILIDADE_VISUAL" -> Color(0xFFD7CCC8)
+                                    "SURDEZ", "ACESSIBILIDADE_LINGUISTICA" -> Color(0xFFB2DFDB)
                                     "SUPORTE_COGNITIVO" -> Color(0xFFFFAB91)
-                                    "ACESSIBILIDADE_VISUAL" -> Color(0xFFD7CCC8)
-                                    "ACESSIBILIDADE_LINGUISTICA" -> Color(0xFFB2DFDB)
                                     "SUPORTE_MULTISSENSORIAL" -> Color(0xFFF8BBD0)
                                     "ALTAS_HABILIDADES" -> Color(0xFFB9F6CA)
                                     else -> Color(0xFF80CBC4)
@@ -3088,7 +3590,7 @@ fun CarteirasScreen(
                                             onClick = {
                                                 editingAlunoId = aluno.id
                                                 nome = aluno.nome
-                                                serieAno = aluno.serieAno.ifBlank { "3º Ano Fundamental" }
+                                                serieAno = aluno.serieAno
                                                 necessidade = aluno.necessidade
                                                 nivelSuporte = aluno.nivelSuporte
                                                 observacoes = aluno.observacoesPedagogicas
@@ -3123,13 +3625,16 @@ fun CarteirasScreen(
                                 // Badges
                                 val (badgeText, badgeBg, badgeFg) = when (aluno.necessidade) {
                                     "TEA" -> Triple("🧩 TEA", Color(0xFFE3F2FD), Color(0xFF0D47A1))
+                                    "SINDROME_DOWN" -> Triple("💛 Síndrome de Down", Color(0xFFFFFDE7), Color(0xFFF57F17))
                                     "TDAH" -> Triple("⚡ TDAH", Color(0xFFFFF8E1), Color(0xFFF57F17))
                                     "DISLEXIA" -> Triple("📖 Dislexia", Color(0xFFF3E5F5), Color(0xFF4A148C))
+                                    "DEF_INTELECTUAL" -> Triple("🧠 Def. Intelectual", Color(0xFFFFF3E0), Color(0xFFD84315))
+                                    "BAIXA_VISAO", "ACESSIBILIDADE_VISUAL" -> Triple("👁️ Baixa Visão", Color(0xFFEFEBE9), Color(0xFF4E342E))
+                                    "SURDEZ", "ACESSIBILIDADE_LINGUISTICA" -> Triple("👂 Surdez / Auditiva", Color(0xFFE0F7FA), Color(0xFF006064))
                                     "SUPORTE_COGNITIVO" -> Triple("🌸 Apoio Cognitivo", Color(0xFFFBE9E7), Color(0xFFD84315))
-                                    "ACESSIBILIDADE_VISUAL" -> Triple("👁️ Acess. Visual", Color(0xFFEFEBE9), Color(0xFF4E342E))
-                                    "ACESSIBILIDADE_LINGUISTICA" -> Triple("👂 Acess. Linguística", Color(0xFFE0F7FA), Color(0xFF006064))
                                     "SUPORTE_MULTISSENSORIAL" -> Triple("🤝 Multissensorial", Color(0xFFFCE4EC), Color(0xFF880E4F))
-                                    else -> Triple("🚀 Altas Habilidades", Color(0xFFE0F2F1), Color(0xFF00695C))
+                                    "ALTAS_HABILIDADES" -> Triple("🚀 Altas Habilidades", Color(0xFFE0F2F1), Color(0xFF00695C))
+                                    else -> Triple(necessidadesList.firstOrNull { it.first == aluno.necessidade }?.second?.take(18) ?: aluno.necessidade, Color(0xFFECEFF1), Color(0xFF37474F))
                                 }
                                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Box(
@@ -3199,11 +3704,15 @@ fun CarteirasScreen(
     if (showAddDialog) {
         AlertDialog(
             onDismissRequest = { showAddDialog = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
             title = {
                 Text(
                     if (editingAlunoId != null) "✏️ Editar Aluno na Carteira" else "➕ Cadastrar Aluno na Carteira (${alunos.size + 1}/9)",
                     fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp
+                    fontSize = 18.sp,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             },
             text = {
@@ -3217,13 +3726,14 @@ fun CarteirasScreen(
                         value = nome,
                         onValueChange = { nome = it },
                         label = { Text("Nome Completo do Aluno") },
+                        placeholder = { Text("Ex: Lucas Silva") },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp),
                         singleLine = true
                     )
 
-                    // Seletor da Série / Ano Escolar (Educação Infantil até 9º Ano)
-                    Text("Série / Ano Escolar:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF1E88E5))
+                    // 1. Seletor Dropdown da Série / Ano Escolar (Sem pré-seleção)
+                    Text("Série / Ano Escolar:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
                     ExposedDropdownMenuBox(
                         expanded = expandedSerie,
                         onExpandedChange = { expandedSerie = !expandedSerie },
@@ -3233,7 +3743,8 @@ fun CarteirasScreen(
                             value = serieAno,
                             onValueChange = {},
                             readOnly = true,
-                            label = { Text("Selecione a Série / Ano") },
+                            label = { Text("Série / Ano Escolar") },
+                            placeholder = { Text("Selecione a Série / Ano...") },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedSerie) },
                             modifier = Modifier
                                 .menuAnchor(MenuAnchorType.PrimaryNotEditable)
@@ -3256,8 +3767,79 @@ fun CarteirasScreen(
                         }
                     }
 
+                    // 2. Seletor Dropdown da Necessidade Especial / Perfil AEE (Sem pré-seleção)
+                    Text("Necessidade Especial / Perfil Pedagógico:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                    val selectedNecessidadeLabel = necessidadesList.firstOrNull { it.first == necessidade }?.second ?: ""
+                    ExposedDropdownMenuBox(
+                        expanded = expandedNecessidade,
+                        onExpandedChange = { expandedNecessidade = !expandedNecessidade },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedTextField(
+                            value = selectedNecessidadeLabel,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Necessidade Especial") },
+                            placeholder = { Text("Selecione a Necessidade Especial...") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedNecessidade) },
+                            modifier = Modifier
+                                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                                .fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        ExposedDropdownMenu(
+                            expanded = expandedNecessidade,
+                            onDismissRequest = { expandedNecessidade = false }
+                        ) {
+                            necessidadesList.forEach { (code, label) ->
+                                DropdownMenuItem(
+                                    text = { Text(label, fontSize = 13.sp) },
+                                    onClick = {
+                                        necessidade = code
+                                        expandedNecessidade = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    // 3. Seletor Dropdown do Grau de Severidade / Suporte (Sem pré-seleção)
+                    Text("Grau de Severidade / Suporte:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                    ExposedDropdownMenuBox(
+                        expanded = expandedSeveridade,
+                        onExpandedChange = { expandedSeveridade = !expandedSeveridade },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedTextField(
+                            value = nivelSuporte,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Grau de Severidade") },
+                            placeholder = { Text("Selecione o Grau de Severidade...") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedSeveridade) },
+                            modifier = Modifier
+                                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                                .fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        ExposedDropdownMenu(
+                            expanded = expandedSeveridade,
+                            onDismissRequest = { expandedSeveridade = false }
+                        ) {
+                            severidadesList.forEach { sev ->
+                                DropdownMenuItem(
+                                    text = { Text(sev, fontSize = 13.sp) },
+                                    onClick = {
+                                        nivelSuporte = sev
+                                        expandedSeveridade = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
                     // Seletor de Ícone / Avatar
-                    Text("Avatar do Aluno:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF333333))
+                    Text("Avatar do Aluno:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -3268,7 +3850,7 @@ fun CarteirasScreen(
                             Box(
                                 modifier = Modifier
                                     .size(38.dp)
-                                    .background(if (avatarEmoji == emoji) Color(0xFF1E88E5) else Color(0xFFF0F0F0), CircleShape)
+                                    .background(if (avatarEmoji == emoji) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant, CircleShape)
                                     .clickable { avatarEmoji = emoji },
                                 contentAlignment = Alignment.Center
                             ) {
@@ -3277,56 +3859,11 @@ fun CarteirasScreen(
                         }
                     }
 
-                    // Seletor da Necessidade Especial
-                    Text("Seletor da Necessidade Especial:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF0D47A1))
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        necessidadesList.forEach { (code, label) ->
-                            val isSel = necessidade == code
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(if (isSel) Color(0xFFE3F2FD) else Color.Transparent, RoundedCornerShape(8.dp))
-                                    .clickable { necessidade = code }
-                                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                RadioButton(
-                                    selected = isSel,
-                                    onClick = { necessidade = code }
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(label, fontSize = 13.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal)
-                            }
-                        }
-                    }
-
-                    // Seletor do Grau de Severidade da Necessidade Especial
-                    Text("Seletor do Grau de Severidade:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF4527A0))
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        severidadesList.forEach { sev ->
-                            val isSel = nivelSuporte == sev
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(if (isSel) Color(0xFFEDE7F6) else Color.Transparent, RoundedCornerShape(8.dp))
-                                    .clickable { nivelSuporte = sev }
-                                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                RadioButton(
-                                    selected = isSel,
-                                    onClick = { nivelSuporte = sev }
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(sev, fontSize = 12.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal)
-                            }
-                        }
-                    }
-
                     OutlinedTextField(
                         value = observacoes,
                         onValueChange = { observacoes = it },
                         label = { Text("Observações Pedagógicas (Opcional)") },
+                        placeholder = { Text("Ex: Gosta de dinossauros, responde bem a recursos visuais...") },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp)
                     )
@@ -3336,7 +3873,19 @@ fun CarteirasScreen(
                 Button(
                     onClick = {
                         if (nome.isBlank()) {
-                            Toast.makeText(context, "Digite o nome do aluno.", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Por favor, digite o nome do aluno.", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        if (serieAno.isBlank()) {
+                            Toast.makeText(context, "Por favor, selecione a série / ano escolar.", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        if (necessidade.isBlank()) {
+                            Toast.makeText(context, "Por favor, selecione a necessidade especial do aluno.", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        if (nivelSuporte.isBlank()) {
+                            Toast.makeText(context, "Por favor, selecione o grau de severidade / suporte.", Toast.LENGTH_SHORT).show()
                             return@Button
                         }
                         val result = viewModel.saveOrUpdateAlunoInclusao(
@@ -3353,6 +3902,9 @@ fun CarteirasScreen(
                             showAddDialog = false
                             editingAlunoId = null
                             nome = ""
+                            serieAno = ""
+                            necessidade = ""
+                            nivelSuporte = ""
                             observacoes = ""
                         } else {
                             Toast.makeText(context, "Limite máximo de 9 carteiras atingido!", Toast.LENGTH_LONG).show()
@@ -3378,12 +3930,16 @@ fun CarteirasScreen(
         val aluno = alunoParaGerarAtividade!!
         AlertDialog(
             onDismissRequest = { alunoParaGerarAtividade = null },
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
             title = {
                 Column {
-                    Text("✨ Gerar Atividade Adaptada", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF9C27B0))
+                    Text("✨ Gerar Atividade Adaptada", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text("Aluno: ${aluno.nome} (${aluno.serieAno})", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF333333))
-                    Text("Perfil: ${aluno.necessidade} • ${aluno.nivelSuporte}", fontSize = 12.sp, color = Color(0xFF666666))
+                    Text("Aluno: ${aluno.nome} (${aluno.serieAno})", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                    val displayNecessidade = necessidadesList.firstOrNull { it.first == aluno.necessidade }?.second ?: aluno.necessidade
+                    Text("Perfil: $displayNecessidade • ${aluno.nivelSuporte}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             },
             text = {
@@ -3393,7 +3949,7 @@ fun CarteirasScreen(
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState())
                 ) {
-                    Text("Selecione a Matéria:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF333333))
+                    Text("Selecione a Matéria:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
                     Row(
                         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -3402,13 +3958,13 @@ fun CarteirasScreen(
                             val isSel = selectedMateria == mat
                             Box(
                                 modifier = Modifier
-                                    .background(if (isSel) Color(0xFF9C27B0) else Color(0xFFF3E5F5), RoundedCornerShape(8.dp))
+                                    .background(if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
                                     .clickable {
                                         selectedMateria = mat
                                     }
                                     .padding(horizontal = 10.dp, vertical = 6.dp)
                             ) {
-                                Text(mat, color = if (isSel) Color.White else Color(0xFF4A148C), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text(mat, color = if (isSel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -3453,7 +4009,7 @@ fun CarteirasScreen(
                         Toast.makeText(context, "Gerando prova adaptada e pronta para ${aluno.nome}...", Toast.LENGTH_SHORT).show()
                         alunoParaGerarAtividade = null
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9C27B0))
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
                     Text("✨ Gerar Prova Pronta com Provalino AI (2 🪙)", fontWeight = FontWeight.Bold)
                 }
@@ -3493,7 +4049,7 @@ fun SimulatedAdDialog(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(if (isRewarded) "🪙" else "📺", fontSize = 24.sp)
                 Text(
-                    text = if (isRewarded) "Anúncio Recompensado (+3 Moedas)" else "Anúncio Intersticial (Rentabilização)",
+                    text = if (isRewarded) "Anúncio Recompensado (Até 10 Moedas/Dia)" else "Anúncio Intersticial (Rentabilização)",
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp
                 )
@@ -3545,7 +4101,7 @@ fun SimulatedAdDialog(
                         Text("📺 PROVALINO ADS", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = if (isRewarded) "Assista até o fim para resgatar +3 Moedas (Máx. 5/hora - Proteção Anti-Bot)!" else "Anúncio de rentabilização obrigatório para manter o Provalino gratuito.",
+                            text = if (isRewarded) "Assista ao anúncio para resgatar moedas (Limite diário: até 10 moedas/dia)!" else "Anúncio de rentabilização para manter o Provalino gratuito.",
                             color = Color(0xFFE8EAF6),
                             fontSize = 11.sp,
                             textAlign = TextAlign.Center
@@ -3568,7 +4124,7 @@ fun SimulatedAdDialog(
                     )
                 } else {
                     Text(
-                        text = if (isRewarded && adLimitMessage == null) "Você assistiu ao anúncio e ganhou +3 Moedas para gerar e adaptar mais provas!" else "Obrigado por apoiar a plataforma Provalino de Inclusão Escolar!",
+                        text = if (isRewarded && adLimitMessage == null) "Você assistiu ao anúncio e resgatou moedas para gerar e adaptar mais provas!" else "Obrigado por apoiar a plataforma Provalino de Inclusão Escolar!",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF2E7D32),
@@ -3587,7 +4143,7 @@ fun SimulatedAdDialog(
                     text = when {
                         !isFinished -> "Aguarde..."
                         isRewarded && adLimitMessage != null -> "Limite Atingido 🚫"
-                        isRewarded -> "Resgatar +3 Moedas 🪙"
+                        isRewarded -> "Resgatar Moedas 🪙"
                         else -> "Continuar ➔"
                     },
                     fontWeight = FontWeight.Bold
@@ -3646,126 +4202,6 @@ fun GradesReportList(grades: List<NotaAluno>, viewModel: ProvalinoViewModel, pro
 }
 
 @Composable
-fun DeveloperPanelDialog(
-    viewModel: ProvalinoViewModel,
-    currentUserEmail: String,
-    onClose: () -> Unit
-) {
-    var customSubject by remember { mutableStateOf("Matemática") }
-    var customStatement by remember { mutableStateOf("Questão cadastrada pelo Administrador") }
-    var statusMessage by remember { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = onClose,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("🛠️", fontSize = 24.sp)
-                Text("Painel do Desenvolvedor - Provalino", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            }
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD)),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text("👤 Administrador Autorizado", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF1565C0))
-                        Text(currentUserEmail, fontSize = 11.sp, color = Color(0xFF333333))
-                    }
-                }
-
-                Text("📊 Métricas da Plataforma", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF1565C0))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Card(modifier = Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = Color.White)) {
-                        Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("⚡", fontSize = 20.sp)
-                            Text("Sessões Ativas", fontSize = 11.sp, color = Color.Gray)
-                            Text("1 (Online)", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF2E7D32))
-                        }
-                    }
-                    Card(modifier = Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = Color.White)) {
-                        Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("🪙", fontSize = 20.sp)
-                            Text("Ads Assistidos", fontSize = 11.sp, color = Color.Gray)
-                            Text("148 Hoje", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF1565C0))
-                        }
-                    }
-                }
-
-                Text("🛠️ Gestão de Contas e Base", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF1565C0))
-                Button(
-                    onClick = {
-                        viewModel.developerResetAllAccounts()
-                        statusMessage = "Contas resetadas com sucesso!"
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("🔄 Reset Manual de Contas / Limpar Sessões", color = Color.White, fontWeight = FontWeight.Bold)
-                }
-
-                Text("➕ Inclusão de Questão no Banco (Firestore / Room)", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF1565C0))
-                OutlinedTextField(
-                    value = customSubject,
-                    onValueChange = { customSubject = it },
-                    label = { Text("Matéria / Assunto") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = customStatement,
-                    onValueChange = { customStatement = it },
-                    label = { Text("Enunciado da Nova Questão") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Button(
-                    onClick = {
-                        viewModel.developerInjectFirestoreQuestion(customSubject, customStatement)
-                        statusMessage = "Questão injetada com sucesso no banco!"
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("📥 Injetar Questão na Base de Dados", color = Color.White, fontWeight = FontWeight.Bold)
-                }
-
-                Button(
-                    onClick = {
-                        statusMessage = "Reavaliação de imagens e pictogramas ARASAAC concluída com 100% de sucesso!"
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("🖼️ Reavaliar e Sincronizar Imagens ARASAAC", color = Color.White, fontWeight = FontWeight.Bold)
-                }
-
-                if (statusMessage.isNotBlank()) {
-                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9))) {
-                        Text(
-                            text = statusMessage,
-                            modifier = Modifier.padding(8.dp),
-                            color = Color(0xFF2E7D32),
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(onClick = onClose) {
-                Text("Fechar Painel", fontWeight = FontWeight.Bold)
-            }
-        }
-    )
-}
-
-@Composable
 fun UpdateAppDialog(
     updateState: AppUpdateState,
     onDismiss: () -> Unit,
@@ -3799,6 +4235,28 @@ fun UpdateAppDialog(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
+
+                if (updateState.releaseNotes.isNotBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = "✨ Novidades da Versão:",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = updateState.releaseNotes,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
 
                 Surface(
                     shape = RoundedCornerShape(12.dp),

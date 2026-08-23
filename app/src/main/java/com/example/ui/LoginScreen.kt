@@ -34,6 +34,14 @@ import androidx.credentials.GetCredentialRequest
 import androidx.credentials.CustomCredential
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import com.example.ui.theme.ClayButton
+import com.example.ui.theme.ClayCard
+import com.example.ui.theme.ClayColors
+import com.example.ui.theme.ClayTextField
+import com.example.ui.theme.ClayLoadingSpinner
+import com.example.ui.theme.ClayLoadingDots
+import com.example.ui.theme.ClayLoadingCard
+import com.example.ui.theme.clayBounce
 import com.example.data.AnalyticsRepository
 import com.example.data.DevLogger
 import com.example.data.DevErrorLog
@@ -192,279 +200,307 @@ fun LoginScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .background(MaterialTheme.colorScheme.background)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(ClayColors.BackgroundMint, ClayColors.BackgroundSoft, Color.White)
+                    )
+                )
                 .verticalScroll(scrollState)
                 .padding(horizontal = 16.dp, vertical = 24.dp),
             contentAlignment = Alignment.Center
         ) {
-            Card(
+            ClayCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .widthIn(max = 440.dp),
-                shape = RoundedCornerShape(28.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+                backgroundColor = Color.White,
+                borderColor = ClayColors.TealLight,
+                shape = RoundedCornerShape(26.dp),
+                elevation = 6.dp
             ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // Mascote Provalino Centralizado
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(110.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer)
-                        .padding(4.dp)
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.provalino_mascot),
-                        contentDescription = "Coruja Mestre Provalino",
+                    // Mascote Provalino Centralizado em Claymation
+                    Box(
+                        contentAlignment = Alignment.Center,
                         modifier = Modifier
-                            .fillMaxSize()
-                            .clip(CircleShape),
-                        contentScale = ContentScale.Crop
-                    )
-                }
-
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "Provalino AI",
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = "Assistente Pedagógico Inclusivo",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = if (isRegisterMode) "🚀 Crie sua conta para adaptar provas em segundos!" else "👋 Olá, Professor(a)! Entre para acessar suas turmas.",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        textAlign = TextAlign.Center,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                    )
-                }
-
-                OutlinedTextField(
-                    value = email,
-                    onValueChange = { email = it },
-                    label = { Text("E-mail") },
-                    leadingIcon = { Icon(Icons.Default.Email, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
-                    )
-                )
-
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text("Senha") },
-                    leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                    visualTransformation = PasswordVisualTransformation(),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
-                    )
-                )
-
-                if (!isRegisterMode) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        TextButton(
-                            onClick = {
-                                forgotPasswordEmail = email.trim()
-                                resetSuccessMessage = null
-                                resetErrorMessage = null
-                                showForgotPasswordDialog = true
-                            },
-                            contentPadding = PaddingValues(0.dp),
-                            modifier = Modifier.height(24.dp)
-                        ) {
-                            Text(
-                                text = "🔑 Esqueceu sua senha?",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.SemiBold
+                            .size(110.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.radialGradient(
+                                    colors = listOf(ClayColors.TealLight.copy(alpha = 0.4f), ClayColors.Teal.copy(alpha = 0.2f))
+                                )
                             )
-                        }
-                    }
-                }
-
-                // Checkbox LGPD
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Checkbox(
-                        checked = agreedToLgpd,
-                        onCheckedChange = { agreedToLgpd = it },
-                        colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary)
-                    )
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Concordo com os Termos de Proteção de Dados (LGPD).",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            lineHeight = 14.sp
-                        )
-                        TextButton(
-                            onClick = { showLgpdDetailsDialog = true },
-                            contentPadding = PaddingValues(0.dp),
-                            modifier = Modifier.height(20.dp)
-                        ) {
-                            Text(
-                                text = "📄 Ler Termos de Privacidade",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-
-                val displayError = localError ?: authError
-                if (!displayError.isNullOrEmpty()) {
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.errorContainer,
-                        modifier = Modifier.fillMaxWidth()
+                            .border(3.dp, ClayColors.Teal, CircleShape)
+                            .padding(4.dp)
                     ) {
-                        Text(
-                            text = displayError ?: "",
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            fontSize = 12.sp,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(10.dp)
+                        Image(
+                            painter = painterResource(id = R.drawable.img_provalino_blue_owl_avatar_1787513526538),
+                            contentDescription = "Coruja Mestre Provalino em Massinha",
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(CircleShape),
+                            contentScale = ContentScale.Crop
                         )
                     }
-                }
 
-                Button(
-                    onClick = {
-                        if (!agreedToLgpd) {
-                            localError = "Você deve concordar com os Termos e LGPD para continuar."
-                            return@Button
-                        }
-                        localError = null
-                        if (isRegisterMode) {
-                            viewModel.signUpWithEmail(email, password)
-                        } else {
-                            viewModel.signInWithEmail(email, password)
-                        }
-                    },
-                    enabled = !authLoading && !isGoogleLoading,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                    shape = RoundedCornerShape(24.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                ) {
-                    if (authLoading && !isGoogleLoading) {
-                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
-                    } else {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = if (isRegisterMode) "Criar Minha Conta" else "Entrar com E-mail",
-                            fontSize = 15.sp,
+                            text = "Provalino AI",
+                            fontSize = 28.sp,
+                            fontWeight = FontWeight.Black,
+                            color = ClayColors.TealDark
+                        )
+                        Text(
+                            text = "Assistente Pedagógico Inclusivo",
+                            fontSize = 13.sp,
+                            color = ClayColors.TextSecondary,
                             fontWeight = FontWeight.Bold
                         )
                     }
-                }
 
-                OutlinedButton(
-                    onClick = {
-                        if (!agreedToLgpd) {
-                            localError = "Você deve concordar com os Termos e LGPD para continuar."
-                            return@OutlinedButton
-                        }
-                        localError = null
-                        handleGoogleSignIn()
-                    },
-                    enabled = !authLoading && !isGoogleLoading,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                    shape = RoundedCornerShape(24.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
-                ) {
-                    if (isGoogleLoading) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            CircularProgressIndicator(
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp
-                            )
-                            Text(
-                                "Conectando ao Google...",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    } else {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = ClayColors.TealLight.copy(alpha = 0.25f),
+                        border = androidx.compose.foundation.BorderStroke(1.5.dp, ClayColors.TealLight),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                         Text(
-                            "🔍 Entrar com Conta Google",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface
+                            text = if (isRegisterMode) "🚀 Crie sua conta para adaptar provas em segundos!" else "👋 Olá, Professor(a)! Entre para acessar suas turmas.",
+                            fontSize = 12.sp,
+                            color = ClayColors.TealDark,
+                            textAlign = TextAlign.Center,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                         )
                     }
-                }
 
-                TextButton(
-                    onClick = { isRegisterMode = !isRegisterMode }
-                ) {
-                    Text(
-                        text = if (isRegisterMode) "Já possui uma conta? Entre aqui" else "Não tem conta? Cadastre-se aqui",
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp
+                    ClayTextField(
+                        value = email,
+                        onValueChange = { email = it },
+                        label = "E-mail do Professor",
+                        placeholder = "seu.email@escola.com",
+                        accentColor = ClayColors.Teal,
+                        trailingIcon = { Icon(Icons.Default.Email, contentDescription = null, tint = ClayColors.Teal) }
                     )
-                }
 
-                TextButton(
-                    onClick = { showDevLogsDialog = true },
-                    contentPadding = PaddingValues(0.dp)
-                ) {
-                    Text(
-                        text = "🛠️ Logs de Diagnóstico do Dev (${devLogs.size})",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        fontWeight = FontWeight.Normal
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = { Text("Senha", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ClayColors.TextSecondary) },
+                        trailingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = ClayColors.Teal) },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color.White, RoundedCornerShape(14.dp)),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = ClayColors.TextPrimary,
+                            unfocusedTextColor = ClayColors.TextPrimary,
+                            focusedBorderColor = ClayColors.Teal,
+                            unfocusedBorderColor = ClayColors.GreyLight.copy(alpha = 0.6f),
+                            cursorColor = ClayColors.Teal
+                        )
                     )
+
+                    if (!isRegisterMode) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            TextButton(
+                                onClick = {
+                                    forgotPasswordEmail = email.trim()
+                                    resetSuccessMessage = null
+                                    resetErrorMessage = null
+                                    showForgotPasswordDialog = true
+                                },
+                                contentPadding = PaddingValues(0.dp),
+                                modifier = Modifier.height(24.dp)
+                            ) {
+                                Text(
+                                    text = "🔑 Esqueceu sua senha?",
+                                    fontSize = 12.sp,
+                                    color = ClayColors.TealDark,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+
+                    // Checkbox LGPD
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Checkbox(
+                            checked = agreedToLgpd,
+                            onCheckedChange = { agreedToLgpd = it },
+                            colors = CheckboxDefaults.colors(checkedColor = ClayColors.Teal)
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Concordo com os Termos de Proteção de Dados (LGPD).",
+                                fontSize = 11.sp,
+                                color = ClayColors.TextPrimary,
+                                lineHeight = 14.sp
+                            )
+                            TextButton(
+                                onClick = { showLgpdDetailsDialog = true },
+                                contentPadding = PaddingValues(0.dp),
+                                modifier = Modifier.height(20.dp)
+                            ) {
+                                Text(
+                                    text = "📄 Ler Termos de Privacidade",
+                                    fontSize = 11.sp,
+                                    color = ClayColors.TealDark,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            }
+                        }
+                    }
+
+                    val displayError = localError ?: authError
+                    if (!displayError.isNullOrEmpty()) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFFFFEBEE),
+                            border = androidx.compose.foundation.BorderStroke(1.5.dp, ClayColors.Red),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = displayError ?: "",
+                                color = ClayColors.RedDark,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
+                    }
+
+                    ClayButton(
+                        onClick = {
+                            if (!agreedToLgpd) {
+                                localError = "Você deve concordar com os Termos e LGPD para continuar."
+                                return@ClayButton
+                            }
+                            localError = null
+                            if (isRegisterMode) {
+                                viewModel.signUpWithEmail(email, password)
+                            } else {
+                                viewModel.signInWithEmail(email, password)
+                            }
+                        },
+                        enabled = !authLoading && !isGoogleLoading,
+                        backgroundColor = ClayColors.Teal,
+                        darkShadowColor = ClayColors.TealDark,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = RoundedCornerShape(18.dp)
+                    ) {
+                        if (authLoading && !isGoogleLoading) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                ClayLoadingDots(
+                                    dotSize = 9.dp,
+                                    colors = listOf(Color.White, Color(0xFFFBBF24), Color.White)
+                                )
+                                Text(
+                                    text = if (isRegisterMode) "Cadastrando..." else "Entrando...",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+                        } else {
+                            Text(
+                                text = if (isRegisterMode) "✨ Criar Minha Conta" else "🚀 Entrar com E-mail",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                    }
+
+                    ClayButton(
+                        onClick = {
+                            if (!agreedToLgpd) {
+                                localError = "Você deve concordar com os Termos e LGPD para continuar."
+                                return@ClayButton
+                            }
+                            localError = null
+                            handleGoogleSignIn()
+                        },
+                        enabled = !authLoading && !isGoogleLoading,
+                        backgroundColor = Color(0xFFF8FAFC),
+                        darkShadowColor = Color(0xFFCBD5E1),
+                        contentColor = ClayColors.TextPrimary,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = RoundedCornerShape(18.dp)
+                    ) {
+                        if (isGoogleLoading) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                ClayLoadingDots(
+                                    dotSize = 8.dp,
+                                    colors = listOf(ClayColors.Teal, ClayColors.Orange, ClayColors.Green)
+                                )
+                                Text(
+                                    "Conectando ao Google...",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = ClayColors.Teal
+                                )
+                            }
+                        } else {
+                            Text(
+                                "🔍 Entrar com Conta Google",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ClayColors.TextPrimary
+                            )
+                        }
+                    }
+
+                    TextButton(
+                        onClick = { isRegisterMode = !isRegisterMode },
+                        modifier = Modifier.clayBounce()
+                    ) {
+                        Text(
+                            text = if (isRegisterMode) "Já possui uma conta? Entre aqui" else "Não tem conta? Cadastre-se aqui",
+                            color = ClayColors.TealDark,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 13.sp
+                        )
+                    }
+
+                    TextButton(
+                        onClick = { showDevLogsDialog = true },
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Text(
+                            text = "🛠️ Logs de Diagnóstico do Dev (${devLogs.size})",
+                            fontSize = 11.sp,
+                            color = ClayColors.TextMuted,
+                            fontWeight = FontWeight.Normal
+                        )
+                    }
                 }
             }
         }
     }
-}
 
     if (showForgotPasswordDialog) {
         AlertDialog(

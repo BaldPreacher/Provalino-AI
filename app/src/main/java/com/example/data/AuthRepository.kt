@@ -4,7 +4,17 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeoutOrNull
 import android.util.Log
+
+data class UserAccountItem(
+    val uid: String = "",
+    val email: String = "",
+    val nome: String = "",
+    val status: String = "ativo",
+    val ultimoLogin: Long = System.currentTimeMillis(),
+    val dataCadastro: Long = System.currentTimeMillis()
+)
 
 data class UserSession(
     val uid: String,
@@ -19,6 +29,9 @@ class AuthRepository {
             Log.w("AuthRepository", "FirebaseAuth não disponível ainda: ${e.message}")
             null
         }
+
+    private val firestore: com.google.firebase.firestore.FirebaseFirestore?
+        get() = FirebaseConfig.getFirestore()
 
     private var localUserSession: UserSession? = null
 
@@ -53,6 +66,7 @@ class AuthRepository {
             if (user != null) {
                 val session = UserSession(user.uid, user.email)
                 localUserSession = session
+                syncUserAccount(user.uid, user.email ?: "", user.displayName ?: "")
                 Result.success(session)
             } else {
                 Result.failure(Exception("Usuário não encontrado no banco de dados."))
@@ -92,6 +106,7 @@ class AuthRepository {
             if (user != null) {
                 val session = UserSession(user.uid, user.email)
                 localUserSession = session
+                syncUserAccount(user.uid, user.email ?: "", user.displayName ?: "")
                 Result.success(session)
             } else {
                 Result.failure(Exception("Não foi possível registrar o usuário no Firebase."))
@@ -131,6 +146,7 @@ class AuthRepository {
                 Log.d("AuthRepository", "Usuário autenticado com sucesso no Firebase: ${user.email} (${user.uid})")
                 val session = UserSession(user.uid, user.email)
                 localUserSession = session
+                syncUserAccount(user.uid, user.email ?: "", user.displayName ?: "")
                 Result.success(session)
             } else {
                 Log.e("AuthRepository", "signInWithCredential retornou usuário nulo.")
@@ -167,6 +183,88 @@ class AuthRepository {
                 else -> "Erro ao enviar link de redefinição: ${e.localizedMessage ?: "Verifique sua conexão."}"
             }
             Result.failure(Exception(msg))
+        }
+    }
+
+    suspend fun syncUserAccount(uid: String, email: String, displayName: String = "") {
+        val fs = firestore ?: return
+        try {
+            withTimeoutOrNull(3000L) {
+                val cleanEmail = email.trim().lowercase()
+                val nomeCalculado = if (displayName.isNotBlank()) displayName else cleanEmail.substringBefore("@")
+                val now = System.currentTimeMillis()
+
+                val userMap = mutableMapOf<String, Any>(
+                    "uid" to uid,
+                    "email" to cleanEmail,
+                    "nome" to nomeCalculado,
+                    "status" to "ativo",
+                    "tipo_usuario" to "professor",
+                    "ultimoLogin" to now,
+                    "app_version" to "40.0",
+                    "app_version_code" to 40L,
+                    "plataforma" to "android"
+                )
+                fs.collection("users").document(uid).set(userMap, com.google.firebase.firestore.SetOptions.merge()).await()
+            }
+        } catch (e: Exception) {
+            Log.w("AuthRepository", "Falha ao sincronizar conta no Firestore: ${e.message}")
+        }
+    }
+
+    suspend fun getAllRegisteredAccounts(): Result<List<UserAccountItem>> {
+        val fs = firestore ?: return Result.failure(Exception("Firestore indisponível"))
+        return try {
+            val snapshot = fs.collection("users").get().await()
+            val list = mutableListOf<UserAccountItem>()
+            for (doc in snapshot.documents) {
+                val emailVal = doc.getString("email") ?: doc.getString("mail") ?: ""
+                val nomeVal = doc.getString("nome")
+                    ?: doc.getString("name")
+                    ?: doc.getString("displayName")
+                    ?: if (emailVal.isNotBlank()) emailVal.substringBefore("@") else ""
+
+                list.add(
+                    UserAccountItem(
+                        uid = doc.getString("uid") ?: doc.id,
+                        email = if (emailVal.isNotBlank()) emailVal else "Sem e-mail",
+                        nome = nomeVal,
+                        status = doc.getString("status") ?: "ativo",
+                        ultimoLogin = doc.getLong("ultimoLogin")
+                            ?: doc.getLong("lastLogin")
+                            ?: doc.getLong("last_login")
+                            ?: System.currentTimeMillis(),
+                        dataCadastro = doc.getLong("dataCadastro")
+                            ?: doc.getLong("createdAt")
+                            ?: doc.getLong("created_at")
+                            ?: System.currentTimeMillis()
+                    )
+                )
+            }
+            Result.success(list.sortedByDescending { it.ultimoLogin })
+        } catch (e: Exception) {
+            Log.w("AuthRepository", "Aviso ao buscar usuários do Firestore: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteOrDeactivateUserAccount(uid: String, email: String): Result<Unit> {
+        val fs = firestore ?: return Result.failure(Exception("Firestore indisponível"))
+        return try {
+            // Marca como desativado no Firestore e remove dados de sessão
+            fs.collection("users").document(uid).delete().await()
+            // Envia e-mail de notificação/redefinição para segurança caso email seja válido
+            if (email.isNotBlank() && email.contains("@")) {
+                try {
+                    firebaseAuth?.sendPasswordResetEmail(email.trim())?.await()
+                } catch (e: Exception) {
+                    Log.w("AuthRepository", "Aviso no envio de e-mail de encerramento: ${e.message}")
+                }
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("AuthRepository", "Erro ao remover conta de usuário: ${e.message}", e)
+            Result.failure(e)
         }
     }
 

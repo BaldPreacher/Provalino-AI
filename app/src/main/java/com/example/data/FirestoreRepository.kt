@@ -19,14 +19,8 @@ data class CloudProva(
 
 object FirestoreRepository {
     private const val TAG = "FirestoreRepository"
-    private val db: FirebaseFirestore? by lazy {
-        try {
-            FirebaseFirestore.getInstance()
-        } catch (e: Exception) {
-            Log.e(TAG, "Erro ao inicializar FirebaseFirestore: ${e.message}")
-            null
-        }
-    }
+    private val db: FirebaseFirestore?
+        get() = FirebaseConfig.getFirestore()
 
     /**
      * Gera uma chave única baseada no conteúdo da questão para deduplicação e economia de espaço.
@@ -196,5 +190,46 @@ object FirestoreRepository {
             Log.e(TAG, "Erro ao deletar atividade: ${e.message}", e)
             return Result.failure(e)
         }
+    }
+
+    // --- ACESSO À COLEÇÃO card_caa ---
+
+    /**
+     * Retorna todos os cartões CAA da coleção 'card_caa'.
+     */
+    suspend fun getAllCardsCaa(forceRefresh: Boolean = false): Result<List<CardCaa>> {
+        return CardCaaRepository.getAllCards(forceRefresh)
+    }
+
+    /**
+     * Busca um cartão CAA pelo termo principal ou sinônimos.
+     */
+    suspend fun getCardCaaByTerm(termo: String): CardCaa? {
+        return CardCaaRepository.findCardByTerm(termo)
+    }
+
+    /**
+     * Pesquisa cartões CAA com filtros opcionais de categoria e nível cognitivo.
+     */
+    suspend fun searchCardsCaa(
+        query: String = "",
+        categoria: String? = null,
+        nivelCognitivo: String? = null
+    ): Result<List<CardCaa>> {
+        return CardCaaRepository.searchCards(query, categoria, nivelCognitivo)
+    }
+
+    /**
+     * Salva ou atualiza um cartão na coleção 'card_caa'.
+     */
+    suspend fun saveCardCaa(card: CardCaa): Result<String> {
+        return CardCaaRepository.saveCard(card)
+    }
+
+    /**
+     * Remove um cartão da coleção 'card_caa'.
+     */
+    suspend fun deleteCardCaa(cardId: String): Result<Unit> {
+        return CardCaaRepository.deleteCard(cardId)
     }
 }

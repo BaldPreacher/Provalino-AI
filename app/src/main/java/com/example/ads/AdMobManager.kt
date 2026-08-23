@@ -150,6 +150,7 @@ object AdMobManager {
 
                 override fun onAdShowedFullScreenContent() {
                     Log.d(TAG, "Rewarded ad displayed on screen.")
+                    com.example.data.AnalyticsRepository.logAdWatched("REWARDED")
                 }
             }
 
@@ -178,6 +179,11 @@ object AdMobManager {
         val ad = interstitialAd
         if (ad != null && AdConfig.ADS_ENABLED) {
             ad.fullScreenContentCallback = object : FullScreenContentCallback() {
+                override fun onAdShowedFullScreenContent() {
+                    Log.d(TAG, "Interstitial ad displayed on screen.")
+                    com.example.data.AnalyticsRepository.logAdWatched("INTERSTITIAL")
+                }
+
                 override fun onAdDismissedFullScreenContent() {
                     Log.d(TAG, "Interstitial ad dismissed.")
                     interstitialAd = null
