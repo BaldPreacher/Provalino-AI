@@ -26,6 +26,7 @@ data class CardCaa(
     val base64: String = "",
     val categoria: String = "geral",
     val imagem_url: String = "",
+    val imagem_bw_url: String = "",
     val mediaId: String = "",
     val mimType: String = "",
     val nivel_cognitivo: String = "inicial",
@@ -49,6 +50,15 @@ data class CardCaa(
                 !imagem_url.equals("nihil", ignoreCase = true) &&
                 !imagem_url.equals("null", ignoreCase = true) &&
                 (imagem_url.startsWith("http://", ignoreCase = true) || imagem_url.startsWith("https://", ignoreCase = true))
+
+    /**
+     * Verifica se há uma URL de imagem em preto e branco (P&B) válida vinculada ao cartão.
+     */
+    val hasValidBwImageUrl: Boolean
+        get() = imagem_bw_url.isNotBlank() &&
+                !imagem_bw_url.equals("nihil", ignoreCase = true) &&
+                !imagem_bw_url.equals("null", ignoreCase = true) &&
+                (imagem_bw_url.startsWith("http://", ignoreCase = true) || imagem_bw_url.startsWith("https://", ignoreCase = true))
 
     /**
      * Converte a string Base64 em um Bitmap decodificado (se disponível).
@@ -75,17 +85,38 @@ data class CardCaa(
      */
     fun matchesQuery(query: String): Boolean {
         val normalizedQuery = normalizeString(query)
-        if (normalizedQuery.isBlank()) return false
+        if (normalizedQuery.isBlank() || normalizedQuery.length < 2) return false
 
         val normalizedTermo = normalizeString(termo)
-        if (normalizedTermo == normalizedQuery || normalizedTermo.contains(normalizedQuery) || normalizedQuery.contains(normalizedTermo)) {
+        if (normalizedTermo == normalizedQuery) {
             return true
+        }
+
+        // Permite match por palavras exatas
+        val queryWords = normalizedQuery.split(" ").filter { it.isNotBlank() }
+        val termoWords = normalizedTermo.split(" ").filter { it.isNotBlank() }
+        if (termoWords.isNotEmpty() && queryWords.isNotEmpty()) {
+            if (termoWords == queryWords) return true
+            // Se o termo tem 1 palavra chave relevante (ex: 'arvore') e a query contém essa palavra como token completo
+            if (termoWords.size == 1 && termoWords.first().length >= 3 && queryWords.contains(termoWords.first())) {
+                return true
+            }
+            if (queryWords.size == 1 && queryWords.first().length >= 3 && termoWords.contains(queryWords.first())) {
+                return true
+            }
         }
 
         for (sin in sinonimos) {
             val normalizedSin = normalizeString(sin)
-            if (normalizedSin == normalizedQuery || normalizedSin.contains(normalizedQuery) || normalizedQuery.contains(normalizedSin)) {
+            if (normalizedSin == normalizedQuery) {
                 return true
+            }
+            val sinWords = normalizedSin.split(" ").filter { it.isNotBlank() }
+            if (sinWords.isNotEmpty() && queryWords.isNotEmpty()) {
+                if (sinWords == queryWords) return true
+                if (sinWords.size == 1 && sinWords.first().length >= 3 && queryWords.contains(sinWords.first())) {
+                    return true
+                }
             }
         }
 
@@ -111,11 +142,23 @@ data class CardCaa(
                 else -> emptyList()
             }
 
+            val imgUrl = doc.getString("imagem_url")
+                ?: doc.getString("imagemUrl")
+                ?: doc.getString("url")
+                ?: ""
+
+            val imgBwUrl = doc.getString("imagem_bw_url")
+                ?: doc.getString("imagemBwUrl")
+                ?: doc.getString("imagem_bw")
+                ?: doc.getString("bw_url")
+                ?: ""
+
             return CardCaa(
                 id = doc.id,
                 base64 = doc.getString("base64") ?: "",
                 categoria = doc.getString("categoria") ?: "geral",
-                imagem_url = doc.getString("imagem_url") ?: "",
+                imagem_url = imgUrl,
+                imagem_bw_url = imgBwUrl,
                 mediaId = doc.getString("mediaId") ?: "",
                 mimType = doc.getString("mimType") ?: "",
                 nivel_cognitivo = doc.getString("nivel_cognitivo") ?: "inicial",
@@ -132,6 +175,7 @@ data class CardCaa(
                 "base64" to card.base64,
                 "categoria" to card.categoria,
                 "imagem_url" to card.imagem_url,
+                "imagem_bw_url" to card.imagem_bw_url,
                 "mediaId" to card.mediaId,
                 "mimType" to card.mimType,
                 "nivel_cognitivo" to card.nivel_cognitivo,

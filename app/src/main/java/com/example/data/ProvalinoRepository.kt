@@ -41,10 +41,18 @@ class ProvalinoRepository(private val dao: ProvalinoDao) {
         count: Int,
         type: String,
         profile: String = "REGULAR",
-        teacherId: String = ""
+        teacherId: String = "",
+        nivelAutonomia: String = ""
     ): List<Questao> {
         val aiQuestions = try {
-            GeminiClient.generateQuestions(subject, grade, count, type, profile)
+            GeminiClient.generateQuestions(
+                subject = subject,
+                grade = grade,
+                count = count,
+                type = type,
+                profile = profile,
+                nivelAutonomia = nivelAutonomia
+            )
         } catch (e: Exception) {
             emptyList()
         }
@@ -134,6 +142,8 @@ class ProvalinoRepository(private val dao: ProvalinoDao) {
 
     // --- PROVAS ---
     fun getProvas(teacherId: String): Flow<List<Prova>> = dao.getAllProvas(teacherId)
+
+    fun getRecentProvas(limit: Int = 10): Flow<List<Prova>> = dao.getRecentProvas(limit)
 
     suspend fun getProvaById(id: Int): Prova? {
         return dao.getProvaById(id)

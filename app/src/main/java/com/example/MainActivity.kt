@@ -1,8 +1,12 @@
 package com.example
 
+import timber.log.Timber
 import com.aistudio.provalino.teacher.abcxyz.R
 import com.example.ui.LoginScreen
 import com.example.ui.PictogramSupportRow
+import com.example.ui.MatchColumnsView
+import com.example.ui.WordSearchComposable
+import com.example.ui.CrosswordComposable
 import com.example.ui.components.ProvalinoEmptyState
 import android.content.Context
 import android.content.Intent
@@ -11,7 +15,11 @@ import androidx.compose.material3.Surface
 import com.example.data.AppUpdateState
 import com.example.data.PictogramInjector
 import com.example.data.PictogramCatalog
+import com.example.data.MatchQuestionHelper
+import com.example.data.ActivityGridHelper
 import com.example.data.AlunoNecessidadeEspecial
+import com.example.data.CardCaa
+import com.example.data.CardCaaRepository
 import com.example.data.PdfShareHelper
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -43,16 +51,24 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -106,6 +122,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -167,12 +184,37 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Timber.tag("ProvalinoLifecycle").i("MainActivity.onCreate started")
+        
+        try {
+            if (com.google.firebase.FirebaseApp.getApps(this).isEmpty()) {
+                val apiKey = if (com.aistudio.provalino.teacher.abcxyz.BuildConfig.GEMINI_API_KEY.isNotEmpty() && com.aistudio.provalino.teacher.abcxyz.BuildConfig.GEMINI_API_KEY != "MY_GEMINI_API_KEY") {
+                    com.aistudio.provalino.teacher.abcxyz.BuildConfig.GEMINI_API_KEY
+                } else {
+                    "AIzaSyB1CT13IqEQL2Z7f6GaY3vfAeyl02PCWQs"
+                }
+
+                val options = com.google.firebase.FirebaseOptions.Builder()
+                    .setApiKey(apiKey)
+                    .setApplicationId("1:12454269674:android:05302ac67950fefe0afd93")
+                    .setProjectId("provalino-ia-provas-adaptadas")
+                    .setStorageBucket("provalino-ia-provas-adaptadas.firebasestorage.app")
+                    .setGcmSenderId("12454269674")
+                    .build()
+                com.google.firebase.FirebaseApp.initializeApp(this, options)
+                Timber.tag("ProvalinoLifecycle").i("MainActivity ensured FirebaseApp initialization")
+            }
+        } catch (e: Exception) {
+            Timber.tag("ProvalinoLifecycle").e(e, "MainActivity Firebase check warning: %s", e.message)
+        }
+
         enableEdgeToEdge()
         setContent {
             MyApplicationTheme {
                 ProvalinoApp()
             }
         }
+        Timber.tag("ProvalinoLifecycle").i("MainActivity.onCreate completed setContent")
     }
 }
 
@@ -186,7 +228,6 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
     }
 
     val currentScreen by viewModel.currentScreen.collectAsState()
-    val turmas by viewModel.turmas.collectAsState()
     val questoes by viewModel.questoes.collectAsState()
     val provas by viewModel.provas.collectAsState()
     val alunosInclusao by viewModel.alunosInclusao.collectAsState()
@@ -202,11 +243,13 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
     val tourStep by viewModel.tourStep.collectAsState()
     val updateState by viewModel.appUpdateState.collectAsState()
     val offlineNoQuestionsState by viewModel.offlineNoQuestionsState.collectAsState()
+    val teacherProfileData by viewModel.teacherUserProfile.collectAsState()
 
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val coroutineScope = rememberCoroutineScope()
     var showPrivacyPolicyDialog by remember { mutableStateOf(false) }
+    var showProfileBottomSheet by remember { mutableStateOf(false) }
     val isAdmin = currentUser?.email == "marcio.moura2708@gmail.com" || currentUser?.email == "admteste@example.com"
 
     // Primeiro acesso: Exibe o tour guiado do Provalino automaticamente
@@ -220,6 +263,27 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
                 viewModel.startTour()
             }
         }
+    }
+
+    if (showProfileBottomSheet) {
+        com.example.ui.TeacherProfileBottomSheet(
+            currentUser = currentUser,
+            teacherProfileData = teacherProfileData,
+            onDismiss = { showProfileBottomSheet = false },
+            onSignOut = {
+                showProfileBottomSheet = false
+                viewModel.signOut()
+            },
+            onOpenPrivacyPolicy = {
+                showPrivacyPolicyDialog = true
+            },
+            onSaveProfile = { newUserName, newEscola, callback ->
+                viewModel.updateTeacherProfile(newUserName, newEscola, callback)
+            },
+            onRequestPasswordReset = { email, callback ->
+                viewModel.sendPasswordResetEmail(email, callback)
+            }
+        )
     }
 
     if (showPrivacyPolicyDialog) {
@@ -311,13 +375,13 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
 
                     Spacer(modifier = Modifier.height(4.dp))
 
-                    // --- LINHA 2 (SECUNDÁRIA - FONTE MENOR): Moedas/Professora à esquerda e Ações (Cadeado, i, X) à direita ---
+                    // --- LINHA 2 (SECUNDÁRIA): Moedas e Perfil do Professor à esquerda (clicável), Guia (i) e Menu à direita ---
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        // Identificação do Professor e Botão de Moedas em Clay
+                        // Identificação do Professor (Clicável -> abre Perfil / Sair / LGPD) e Moedas
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -327,54 +391,62 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
                                 onClick = { viewModel.openAdModal("REWARDED") }
                             )
 
-                            Text(
-                                text = "Prof(a). ${currentUser?.email?.substringBefore("@") ?: "Docente"}",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.95f),
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            Surface(
+                                onClick = { showProfileBottomSheet = true },
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.15f),
+                                modifier = Modifier.testTag("topbar_btn_teacher_profile")
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    val teacherDisplayName = teacherProfileData["user_name"]?.takeIf { it.isNotBlank() }
+                                        ?: currentUser?.userName?.takeIf { it.isNotBlank() }
+                                        ?: currentUser?.email?.substringBefore("@")
+                                        ?: "Docente"
+
+                                    Text("🧑‍🏫", fontSize = 12.sp)
+                                    Text(
+                                        text = "Prof(a). $teacherDisplayName",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Default.Settings,
+                                        contentDescription = "Configurações do Perfil",
+                                        tint = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                }
+                            }
                         }
 
-                        // Ações secundárias: Cadeado (Privacidade), i (Tour), X (Sair)
+                        // Ações secundárias: Guia (i) e Perfil Rápido
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             IconButton(
-                                onClick = { showPrivacyPolicyDialog = true },
-                                modifier = Modifier.size(32.dp).clayBounce()
+                                onClick = { viewModel.setScreen("primeiros_passos") },
+                                modifier = Modifier.size(32.dp).clayBounce().testTag("topbar_btn_primeiros_passos")
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Lock,
-                                    contentDescription = "Política de Privacidade",
-                                    tint = MaterialTheme.colorScheme.onPrimary,
-                                    modifier = Modifier.size(18.dp)
-                                )
+                                Text("🚀", fontSize = 18.sp)
                             }
 
                             IconButton(
                                 onClick = { viewModel.startTour() },
-                                modifier = Modifier.size(32.dp).clayBounce()
+                                modifier = Modifier.size(32.dp).clayBounce().testTag("topbar_btn_tour")
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Info,
                                     contentDescription = "Guia e Tour do Aplicativo",
                                     tint = MaterialTheme.colorScheme.onPrimary,
-                                    modifier = Modifier.size(19.dp)
-                                )
-                            }
-
-                            IconButton(
-                                onClick = { viewModel.signOut() },
-                                modifier = Modifier.size(32.dp).clayBounce()
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Sair da conta",
-                                    tint = MaterialTheme.colorScheme.onPrimary,
-                                    modifier = Modifier.size(19.dp)
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
                         }
@@ -406,7 +478,7 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
                     selected = currentScreen == "provas",
                     onClick = { viewModel.setScreen("provas") },
                     icon = { Text("📝", fontSize = 18.sp) },
-                    label = { Text("Provas", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
+                    label = { Text("Atividades", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
                     modifier = Modifier.testTag("nav_provas")
                 )
 
@@ -435,6 +507,7 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
             when (currentScreen) {
                 "home" -> HomeScreen(
                     viewModel = viewModel,
+                    alunos = alunosInclusao,
                     alunoCount = alunosInclusao.size,
                     questaoCount = questoes.size,
                     provaCount = provas.size
@@ -453,12 +526,17 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
                 "provas" -> ProvasScreen(
                     viewModel = viewModel,
                     provas = provas,
-                    turmas = turmas,
                     alunos = alunosInclusao,
                     onVerDetalhes = { prova ->
                         viewModel.selectProvaForGrades(prova)
                         viewModel.setScreen("detalhes_prova")
                     }
+                )
+                "primeiros_passos" -> com.example.ui.PrimeirosPassosScreen(
+                    onVoltar = { viewModel.setScreen("home") },
+                    onCadastrarAlunoClick = { viewModel.setScreen("inclusao") },
+                    onGerarProvaClick = { viewModel.setScreen("nova_prova") },
+                    onVerProvasClick = { viewModel.setScreen("provas") }
                 )
                 "developer" -> if (isAdmin) {
                     com.example.ui.DevDashboardScreen(
@@ -470,14 +548,13 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
                 }
                 "nova_prova" -> NovaProvaScreen(
                     viewModel = viewModel,
-                    turmas = turmas,
-                    questoes = questoes
+                    questoes = questoes,
+                    alunos = alunosInclusao
                 )
                 "detalhes_prova" -> activeProvaForGrades?.let { prova ->
                     DetalhesProvaScreen(
                         viewModel = viewModel,
                         prova = prova,
-                        turmas = turmas,
                         grades = gradesForActiveProva,
                         onVoltar = { viewModel.setScreen("provas") }
                     )
@@ -545,13 +622,13 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
-                            text = "Não encontramos questões salvas no banco de dados local para o assunto:\n\"${state.subject}\".",
+                            text = "Não encontramos questões salvas na biblioteca para o assunto:\n\"${state.subject}\".",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF1565C0)
                         )
                         Text(
-                            text = "É necessária uma conexão ativa com a internet para que o Provalino AI crie esta prova com o assunto solicitado.",
+                            text = "É necessária uma conexão ativa com a internet para que o Provalino AI crie esta atividade com o assunto solicitado.",
                             fontSize = 13.sp,
                             color = Color(0xFF333333)
                         )
@@ -608,11 +685,57 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
         }
 
         if (showAdDialog) {
-            SimulatedAdDialog(
-                adType = adType,
-                adLimitMessage = adLimitMessage,
-                onClose = { granted -> viewModel.closeAdModal(granted) }
-            )
+            val activity = context as? android.app.Activity
+            if (!adLimitMessage.isNullOrEmpty()) {
+                AlertDialog(
+                    onDismissRequest = { viewModel.closeAdModal(false) },
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("⚠️", fontSize = 22.sp)
+                            Text("Limite de Anúncios", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        }
+                    },
+                    text = {
+                        Text(
+                            text = adLimitMessage!!,
+                            fontSize = 13.sp,
+                            color = Color(0xFF333333)
+                        )
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = { viewModel.closeAdModal(false) },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5))
+                        ) {
+                            Text("Entendido", color = Color.White)
+                        }
+                    }
+                )
+            } else {
+                LaunchedEffect(showAdDialog, adType) {
+                    if (activity != null) {
+                        if (adType == "INTERSTITIAL") {
+                            com.example.ads.AdMobManager.showInterstitialAd(activity) {
+                                viewModel.closeAdModal(false)
+                            }
+                        } else if (adType == "REWARDED") {
+                            com.example.ads.AdMobManager.showRewardedAd(
+                                activity = activity,
+                                onRewardEarned = {
+                                    viewModel.closeAdModal(true)
+                                },
+                                onDismissed = {
+                                    viewModel.closeAdModal(false)
+                                }
+                            )
+                        } else {
+                            viewModel.closeAdModal(false)
+                        }
+                    } else {
+                        viewModel.closeAdModal(false)
+                    }
+                }
+            }
         }
 
         if (aiError != null) {
@@ -627,7 +750,7 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
-                            text = aiError ?: "É necessária uma conexão ativa com a internet para comunicar com o Provalino AI e construir a prova.",
+                            text = aiError ?: "É necessária uma conexão ativa com a internet para comunicar com o Provalino AI e construir a atividade.",
                             fontSize = 14.sp,
                             color = Color(0xFF333333)
                         )
@@ -659,122 +782,242 @@ fun ProvalinoApp(viewModel: ProvalinoViewModel = viewModel()) {
 
 
 
+        // --- TOUR DE ONBOARDING EXPLICATIVO CENTRALIZADO (FLUTUANTE) ---
         if (showTour) {
-            val steps = listOf(
-                Triple(
-                    "🦉 Bem-vindo ao Provalino AI!",
-                    "Seu assistente inteligente para criar avaliações diferenciadas, inclusivas e personalizadas para seus alunos com facilidade e rapidez.",
-                    "Passo 1 de 4"
-                ),
-                Triple(
-                    "🧩 1. Carteira de Alunos Inclusivos",
-                    "Cadastre seus alunos com necessidades especiais na carteira de inclusão. O Provalino usa esses dados para gerar avaliações perfeitamente adaptadas e prontas para cada perfil.",
-                    "Passo 2 de 4"
-                ),
-                Triple(
-                    "✨ 2. Geração Inteligente de Provas",
-                    "Use o fluxo de sala de aula e clique no botão de gerar atividade para criar avaliações pedagógicas completas com IA. A IA ajusta automaticamente o nível de complexidade e inclusão!",
-                    "Passo 3 de 4"
-                ),
-                Triple(
-                    "📚 3. Histórico e Economia ('Provas')",
-                    "Todas as provas geradas ficam salvas automaticamente no banco de dados local. Você pode visualizá-las e reutilizá-las na aba 'Provas' a qualquer momento sem gastar moedas novas!",
-                    "Passo 4 de 4"
-                )
+            ProvalinoInteractiveOnboardingTour(
+                onDismiss = { viewModel.dismissTour() }
             )
-            val currentStepInfo = steps.getOrElse(tourStep) { steps[0] }
+        }
+    }
+}
 
-            AlertDialog(
-                onDismissRequest = { viewModel.dismissTour() },
-                containerColor = MaterialTheme.colorScheme.surface,
-                titleContentColor = MaterialTheme.colorScheme.onSurface,
-                textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                title = {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
-                            text = currentStepInfo.third,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Text(
-                            text = currentStepInfo.first,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 17.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        Text(
-                            text = currentStepInfo.second,
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            lineHeight = 19.sp
-                        )
-                        
+// --- COMPONENTE DE ONBOARDING EXPLICATIVO CENTRALIZADO COM O PROVALINO (DESIGN FLUTUANTE) ---
+
+@Composable
+fun ProvalinoInteractiveOnboardingTour(
+    onDismiss: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.5f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismiss
+                )
+                .padding(20.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 380.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {} // Impede fechar ao clicar dentro do card
+                    ),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(defaultElevation = 16.dp),
+                border = BorderStroke(2.dp, ClayColors.Teal)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    // Header com Mascote, Título e Botão Fechar
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            for (i in 0 until 4) {
-                                Box(
-                                    modifier = Modifier
-                                        .padding(horizontal = 4.dp)
-                                        .size(if (i == tourStep) 10.dp else 6.dp)
-                                        .background(
-                                            color = if (i == tourStep) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                                            shape = CircleShape
-                                        )
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFFE0F2F1),
+                                modifier = Modifier.size(42.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text("🦉", fontSize = 22.sp)
+                                }
+                            }
+                            Column {
+                                Text(
+                                    text = "Como Funciona o Provalino",
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 14.sp,
+                                    color = Color(0xFF0F172A)
+                                )
+                                Text(
+                                    text = "Guia Prático Passo a Passo",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF0D9488)
                                 )
                             }
                         }
+
+                        IconButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.size(32.dp).testTag("tour_close_btn")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Fechar Guia",
+                                tint = Color(0xFF64748B),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
-                },
-                confirmButton = {
+
+                    HorizontalDivider(color = Color(0xFFF1F5F9), thickness = 1.dp)
+
+                    // Passo 1: Carteiras dos Alunos
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                            .background(Color(0xFFF8FAFC), RoundedCornerShape(14.dp))
+                            .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(14.dp))
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.Top
                     ) {
-                        TextButton(
-                            onClick = { viewModel.dismissTour() },
-                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFFDBEAFE),
+                            modifier = Modifier.size(32.dp)
                         ) {
-                            Text("Pular", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                            Box(contentAlignment = Alignment.Center) {
+                                Text("🧑‍🎓", fontSize = 16.sp)
+                            }
                         }
-                        
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
-                            if (tourStep > 0) {
-                                OutlinedButton(
-                                    onClick = { viewModel.prevTourStep() },
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                                ) {
-                                    Text("Anterior", fontSize = 11.sp)
-                                }
-                            }
-                            Button(
-                                onClick = { viewModel.nextTourStep() },
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                            ) {
-                                Text(
-                                    text = if (tourStep == 3) "Concluir 🎉" else "Próximo ➜",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 11.sp
-                                )
-                            }
+                            Text(
+                                text = "1. Carteiras dos Alunos",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.5.sp,
+                                color = Color(0xFF1E3A8A)
+                            )
+                            Text(
+                                text = "Cadastre seus alunos indicando necessidades (TEA, TDAH, Dislexia) para definir o nível de apoio e recursos visuais.",
+                                fontSize = 11.sp,
+                                color = Color(0xFF475569),
+                                lineHeight = 15.sp
+                            )
                         }
                     }
+
+                    // Passo 2: Gerador com IA
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFFFAF5FF), RoundedCornerShape(14.dp))
+                            .border(1.dp, Color(0xFFE9D5FF), RoundedCornerShape(14.dp))
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFFF3E8FF),
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text("⚡", fontSize = 16.sp)
+                            }
+                        }
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(
+                                text = "2. Gerador com IA",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.5.sp,
+                                color = Color(0xFF6B21A8)
+                            )
+                            Text(
+                                text = "Crie avaliações adaptadas com apoio visual CAA, ilustrações temáticas e enunciados acessíveis com 1 toque.",
+                                fontSize = 11.sp,
+                                color = Color(0xFF475569),
+                                lineHeight = 15.sp
+                            )
+                        }
+                    }
+
+                    // Passo 3: PDF A4, Notas e Boletim
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFFF0FDF4), RoundedCornerShape(14.dp))
+                            .border(1.dp, Color(0xFFBBF7D0), RoundedCornerShape(14.dp))
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFFDCFCE7),
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text("📄", fontSize = 16.sp)
+                            }
+                        }
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(
+                                text = "3. PDF A4, Notas & Boletim",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.5.sp,
+                                color = Color(0xFF166534)
+                            )
+                            Text(
+                                text = "Exporte em folha A4 formatada, imprima para seus estudantes, registre notas e acompanhe o boletim individual.",
+                                fontSize = 11.sp,
+                                color = Color(0xFF475569),
+                                lineHeight = 15.sp
+                            )
+                        }
+                    }
+
+                    // Botão Simples de Fechamento
+                    ClayButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .testTag("tour_dismiss_btn"),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        backgroundColor = ClayColors.Teal,
+                        darkShadowColor = ClayColors.TealDark
+                    ) {
+                        Text(
+                            text = "Entendido ✨",
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            fontSize = 14.sp
+                        )
+                    }
                 }
-            )
+            }
         }
     }
 }
@@ -825,7 +1068,7 @@ fun ProvalinoMascotProgressWidget(
     }
 
     val message = when {
-        completedCount == 0 -> "👋 Olá, Professor(a)! Crie sua primeira prova em segundos e ganhe até 3 horas livres por semana!"
+        completedCount == 0 -> "👋 Olá, Professor(a)! Crie sua primeira atividade em segundos e ganhe até 3 horas livres por semana!"
         completedCount in 1..3 -> "⚡ Você já economizou ~$hoursSavedText de trabalho manual! Adeus noites formatando avaliações!"
         completedCount in 4..9 -> "🔥 Incrível! ~$hoursSavedText poupados com IA! Mais tempo para você e inclusão real para seus alunos."
         else -> "🏆 Sensacional! Você já economizou mais de $hoursSavedText de planejamento com o Provalino! Sua rotina docente agradece! 🦉✨"
@@ -940,13 +1183,269 @@ fun ProvalinoMascotProgressWidget(
 
 // --- 1. HOME SCREEN ---
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     viewModel: ProvalinoViewModel,
+    alunos: List<AlunoNecessidadeEspecial>,
     alunoCount: Int,
     questaoCount: Int,
     provaCount: Int
 ) {
+    val context = LocalContext.current
+    var showNoAlunosDialog by remember { mutableStateOf(false) }
+    var showGenerateModal by remember { mutableStateOf(false) }
+    var selectedAluno by remember { mutableStateOf<AlunoNecessidadeEspecial?>(null) }
+    var selectedMateria by remember { mutableStateOf("Língua Portuguesa") }
+    var assuntoTema by remember { mutableStateOf("") }
+    var questionCount by remember { mutableIntStateOf(3) }
+    var selectedDocType by remember { mutableStateOf("Atividade") }
+    var expandedMateria by remember { mutableStateOf(false) }
+    var expandedAluno by remember { mutableStateOf(false) }
+
+    val materiasList = listOf(
+        "Língua Portuguesa",
+        "Matemática",
+        "Ciências da Natureza",
+        "História",
+        "Geografia",
+        "Artes e Expressão Visual",
+        "Ensino Religioso / Valores",
+        "Língua Inglesa",
+        "Educação Física"
+    )
+
+    if (showNoAlunosDialog) {
+        AlertDialog(
+            onDismissRequest = { showNoAlunosDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("🧑‍🎓 ", fontSize = 22.sp)
+                    Text("Cadastre seu Primeiro Aluno", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                }
+            },
+            text = {
+                Text(
+                    "Para gerar atividades e avaliações 100% personalizadas pela IA (respeitando o perfil de neurodiversidade, autonomia de leitura e DUA/AEE), cadastre primeiro um aluno na Sala Inclusiva.",
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 20.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showNoAlunosDialog = false
+                        viewModel.setScreen("inclusao")
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ClayColors.Purple)
+                ) {
+                    Text("Cadastrar Aluno Agora 🚀", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNoAlunosDialog = false }) {
+                    Text("Depois")
+                }
+            },
+            shape = RoundedCornerShape(18.dp)
+        )
+    }
+
+    if (showGenerateModal && selectedAluno != null) {
+        AlertDialog(
+            onDismissRequest = { showGenerateModal = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("🤖 ", fontSize = 22.sp)
+                    Text("Gerar Atividade com Provalino AI", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text("1. Selecione o Aluno da Sala Inclusiva:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                    ExposedDropdownMenuBox(
+                        expanded = expandedAluno,
+                        onExpandedChange = { expandedAluno = !expandedAluno },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedTextField(
+                            value = "${selectedAluno?.avatarEmoji ?: "🧑‍🎓"} ${selectedAluno?.nome ?: ""} (${selectedAluno?.serieAno ?: ""})",
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Aluno Selecionado") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedAluno) },
+                            modifier = Modifier
+                                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                                .fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        ExposedDropdownMenu(
+                            expanded = expandedAluno,
+                            onDismissRequest = { expandedAluno = false }
+                        ) {
+                            alunos.forEach { al ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(al.avatarEmoji.ifBlank { "🧑‍🎓" }, fontSize = 16.sp, modifier = Modifier.padding(end = 6.dp))
+                                            Text("${al.nome} - ${al.serieAno} [${al.necessidade}]", fontSize = 13.sp)
+                                        }
+                                    },
+                                    onClick = {
+                                        selectedAluno = al
+                                        expandedAluno = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    Text("2. Matéria / Disciplina:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                    ExposedDropdownMenuBox(
+                        expanded = expandedMateria,
+                        onExpandedChange = { expandedMateria = !expandedMateria },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedTextField(
+                            value = selectedMateria,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Matéria") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedMateria) },
+                            modifier = Modifier
+                                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                                .fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        ExposedDropdownMenu(
+                            expanded = expandedMateria,
+                            onDismissRequest = { expandedMateria = false }
+                        ) {
+                            materiasList.forEach { mat ->
+                                DropdownMenuItem(
+                                    text = { Text(mat, fontSize = 13.sp) },
+                                    onClick = {
+                                        selectedMateria = mat
+                                        expandedMateria = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = assuntoTema,
+                        onValueChange = { assuntoTema = it },
+                        label = { Text("Assunto / Tema / Habilidade BNCC (Opcional)") },
+                        placeholder = { Text("Ex: Animais vertebrados, leitura de tirinhas, adição...") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+
+                    Text("3. Quantidade de Questões:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(3 to "3 Questões (Rápida)", 5 to "5 Questões (Completa)").forEach { (cnt, label) ->
+                            val isSel = questionCount == cnt
+                            OutlinedButton(
+                                onClick = { questionCount = cnt },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = if (isSel) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                                ),
+                                border = BorderStroke(if (isSel) 2.dp else 1.dp, if (isSel) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.5f)),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text(label, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal)
+                            }
+                        }
+                    }
+
+                    Text("4. Nomear Documento como:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val isAtividade = selectedDocType == "Atividade"
+                        OutlinedButton(
+                            onClick = { selectedDocType = "Atividade" },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (isAtividade) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                            ),
+                            border = BorderStroke(if (isAtividade) 2.dp else 1.dp, if (isAtividade) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("📝 Atividade", fontSize = 12.sp, fontWeight = if (isAtividade) FontWeight.Bold else FontWeight.Normal)
+                        }
+
+                        val isAvaliacao = selectedDocType == "Avaliação"
+                        OutlinedButton(
+                            onClick = { selectedDocType = "Avaliação" },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (isAvaliacao) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                            ),
+                            border = BorderStroke(if (isAvaliacao) 2.dp else 1.dp, if (isAvaliacao) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("📋 Avaliação", fontSize = 12.sp, fontWeight = if (isAvaliacao) FontWeight.Bold else FontWeight.Normal)
+                        }
+                    }
+
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFEDE7F6)),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("🪙", fontSize = 18.sp, modifier = Modifier.padding(end = 8.dp))
+                            Text(
+                                "Geração inteligente adaptada: Custo de 2 moedas Provalino. O documento gerado será aberto automaticamente!",
+                                fontSize = 11.sp,
+                                color = Color(0xFF4A148C),
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val al = selectedAluno ?: return@Button
+                        val finalSubject = if (assuntoTema.isNotBlank()) "$selectedMateria - $assuntoTema" else selectedMateria
+                        showGenerateModal = false
+                        viewModel.generateAndCreateProvaForAluno(
+                            aluno = al,
+                            subject = finalSubject,
+                            grade = al.serieAno,
+                            count = questionCount,
+                            docType = selectedDocType
+                        )
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ClayColors.Purple)
+                ) {
+                    Text("⚡ Gerar e Abrir $selectedDocType", fontWeight = FontWeight.Black)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showGenerateModal = false }) {
+                    Text("Cancelar")
+                }
+            },
+            shape = RoundedCornerShape(18.dp)
+        )
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -1055,7 +1554,7 @@ fun HomeScreen(
                 StatCard(
                     icon = "📝",
                     count = provaCount,
-                    title = "Provas",
+                    title = "Atividades",
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -1082,18 +1581,41 @@ fun HomeScreen(
                     )
 
                     ClayButton(
-                        onClick = { viewModel.setScreen("questoes") },
+                        onClick = { viewModel.setScreen("primeiros_passos") },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(56.dp)
+                            .heightIn(min = 48.dp, max = 54.dp)
+                            .testTag("home_btn_primeiros_passos"),
+                        backgroundColor = Color(0xFF0284C7),
+                        darkShadowColor = Color(0xFF0369A1),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("🚀  ", fontSize = 16.sp)
+                            Text("Primeiros Passos (Guia do Professor)", fontSize = 14.sp, fontWeight = FontWeight.Black)
+                        }
+                    }
+
+                    ClayButton(
+                        onClick = {
+                            if (alunos.isEmpty()) {
+                                showNoAlunosDialog = true
+                            } else {
+                                selectedAluno = alunos.first()
+                                showGenerateModal = true
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp, max = 54.dp)
                             .testTag("home_btn_gerar_ia"),
                         backgroundColor = ClayColors.Purple,
                         darkShadowColor = ClayColors.PurpleDark,
-                        shape = RoundedCornerShape(18.dp)
+                        shape = RoundedCornerShape(16.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("🤖  ", fontSize = 18.sp)
-                            Text("Gerar Atividades com Provalino AI", fontSize = 15.sp, fontWeight = FontWeight.Black)
+                            Text("🤖  ", fontSize = 16.sp)
+                            Text("Gerar Atividade com IA", fontSize = 14.sp, fontWeight = FontWeight.Black)
                         }
                     }
 
@@ -1101,15 +1623,15 @@ fun HomeScreen(
                         onClick = { viewModel.setScreen("inclusao") },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(56.dp)
+                            .heightIn(min = 48.dp, max = 54.dp)
                             .testTag("home_btn_alunos"),
                         backgroundColor = ClayColors.Blue,
                         darkShadowColor = ClayColors.BlueDark,
-                        shape = RoundedCornerShape(18.dp)
+                        shape = RoundedCornerShape(16.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("🧑‍🎓  ", fontSize = 18.sp)
-                            Text("Alunos na Sala ($alunoCount/9)", fontSize = 15.sp, fontWeight = FontWeight.Black)
+                            Text("🧑‍🎓  ", fontSize = 16.sp)
+                            Text("Sala de Alunos ($alunoCount/9)", fontSize = 14.sp, fontWeight = FontWeight.Black)
                         }
                     }
 
@@ -1117,15 +1639,15 @@ fun HomeScreen(
                         onClick = { viewModel.setScreen("nova_prova") },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(56.dp)
+                            .heightIn(min = 48.dp, max = 54.dp)
                             .testTag("home_btn_criar_prova"),
                         backgroundColor = ClayColors.Green,
                         darkShadowColor = ClayColors.GreenDark,
-                        shape = RoundedCornerShape(18.dp)
+                        shape = RoundedCornerShape(16.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("📝  ", fontSize = 18.sp)
-                            Text("Montar Prova Adaptada", fontSize = 15.sp, fontWeight = FontWeight.Black)
+                            Text("📚  ", fontSize = 16.sp)
+                            Text("Meu Banco de Questões", fontSize = 14.sp, fontWeight = FontWeight.Black)
                         }
                     }
                 }
@@ -1154,7 +1676,7 @@ fun HomeScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "1. Cadastre até 9 carteiras de alunos nas necessidades especiais (TEA, TDAH, Dislexia, etc) e grau de severidade.\n2. Gere atividades e questões 100% adaptadas com Provalino AI.\n3. Monte provas pedagógicas inclusivas para Educação Infantil e Ensino Fundamental seguindo as normas DUA/AEE do MEC!",
+                            text = "1. Cadastre até 9 carteiras de alunos nas necessidades especiais (TEA, TDAH, Dislexia, etc) e grau de severidade.\n2. Gere atividades e questões 100% adaptadas com Provalino AI.\n3. Monte atividades pedagógicas inclusivas para Educação Infantil e Ensino Fundamental seguindo as normas DUA/AEE do MEC!",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 18.sp
@@ -1203,6 +1725,177 @@ fun StatCard(icon: String, count: Int, title: String, modifier: Modifier = Modif
             )
         }
     }
+}
+
+@Composable
+fun AdExportDialogFrame(
+    actionType: String,
+    onDismiss: () -> Unit,
+    onProceed: () -> Unit
+) {
+    var isWatching by remember { mutableStateOf(false) }
+    var secondsRemaining by remember { mutableIntStateOf(5) }
+    val context = LocalContext.current
+
+    LaunchedEffect(isWatching) {
+        if (isWatching) {
+            while (secondsRemaining > 0) {
+                kotlinx.coroutines.delay(1000)
+                secondsRemaining--
+            }
+            onProceed()
+            onDismiss()
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = {
+            if (!isWatching) onDismiss()
+        },
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .background(Color(0xFF0284C7), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text("📺 INTERSTICIAL", fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color.White)
+                    }
+                    Text("Anúncio Parceiro", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E293B))
+                }
+                Text("AdMob", fontSize = 10.sp, color = Color(0xFF94A3B8))
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                if (isWatching) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(18.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text("📺", fontSize = 32.sp)
+                            Text(
+                                "Exibindo Anúncio Intersticial...",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = Color.White
+                            )
+                            LinearProgressIndicator(
+                                progress = { (5 - secondsRemaining) / 5f },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(8.dp)
+                                    .clip(RoundedCornerShape(4.dp)),
+                                color = Color(0xFF38BDF8),
+                                trackColor = Color(0xFF334155)
+                            )
+                            Text(
+                                "Ação liberada em $secondsRemaining s",
+                                fontSize = 12.sp,
+                                color = Color(0xFF94A3B8),
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                } else {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+                        border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                "📢 Anúncio para Impressão de Atividade Salva",
+                                fontWeight = FontWeight.Black,
+                                fontSize = 14.sp,
+                                color = Color(0xFF0F172A)
+                            )
+                            Text(
+                                "Esta atividade já estava salva no seu histórico. Anúncios parceiros mantêm o Provalino 100% gratuito para professores de educação inclusiva do Brasil.",
+                                fontSize = 11.5.sp,
+                                color = Color(0xFF475569),
+                                lineHeight = 16.sp
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFFE0F2FE), RoundedCornerShape(8.dp))
+                                    .padding(8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    "💡 A exportação será iniciada logo em seguida!",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF0369A1)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (!isWatching) {
+                Button(
+                    onClick = {
+                        val activity = context as? android.app.Activity
+                        if (activity != null) {
+                            com.example.ads.AdMobManager.showInterstitialAd(
+                                activity = activity,
+                                onFinished = {
+                                    onProceed()
+                                    onDismiss()
+                                }
+                            )
+                        } else {
+                            onProceed()
+                            onDismiss()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    val actionName = when (actionType) {
+                        "PRINT" -> "🖨️ Continuar para Imprimir"
+                        "PDF" -> "📤 Continuar para Gerar PDF"
+                        "COPY" -> "📋 Continuar para Copiar"
+                        else -> "Continuar Ação"
+                    }
+                    Text(actionName, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+            }
+        },
+        dismissButton = {
+            if (!isWatching) {
+                TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                    Text("Cancelar / Fechar", color = Color(0xFF64748B))
+                }
+            }
+        }
+    )
 }
 
 // --- ADS BANNER VIEW COMPONENT ---
@@ -1309,10 +2002,8 @@ fun ProfileSelectorRow(selected: String, onSelected: (String) -> Unit) {
         Triple("TDAH", "TDAH ⚡", "Comandos em DESTAQUE, tópicos curtos e estimulação focada sem textos longos."),
         Triple("DISLEXIA", "Dislexia 📖", "Frases na ordem direta, vocabulário simplificado e alto contraste."),
         Triple("SUPORTE_COGNITIVO", "Apoio Cognitivo 🌸", "Conceitos concretos, apoio visual e no máximo 3 alternativas claras (DUA)."),
-        Triple("ACESSIBILIDADE_VISUAL", "Acess. Visual 👁️", "Descrições táteis e auditivas ricas para leitor de tela ou ampliação."),
-        Triple("ACESSIBILIDADE_LINGUISTICA", "Acess. Linguística 👂", "Vocabulário visual, imagens e estruturação sintática objetiva."),
-        Triple("SUPORTE_MULTISSENSORIAL", "Multissensorial 🤝", "Multi-sensorialidade, comandos curtos e máximo nível de acolhimento."),
-        Triple("ALTAS_HABILIDADES", "Altas Habilidades 🚀", "Desafios cognitivos, pensamento crítico e autonomia.")
+        Triple("SUPORTE_MULTISSENSORIAL", "Multissensorial 🤝", "Multi-sensorialidade, comandos curtos e acolhimento."),
+        Triple("ALTAS_HABILIDADES", "Altas Habilidades 🚀", "Enriquecimento curricular, desafios cognitivos, pensamento crítico e autonomia investigativa.")
     )
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Perfil de Adaptação Inclusiva (DUA/AEE):", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF1E88E5))
@@ -1479,6 +2170,9 @@ fun QuestoesScreen(
                         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
+                            val isCrossword = ActivityGridHelper.isCrosswordQuestion(q.tipo, q.enunciado)
+                            val isWordSearch = ActivityGridHelper.isWordSearchQuestion(q.tipo, q.enunciado)
+                            val isMatch = MatchQuestionHelper.isMatchQuestion(q.tipo, q.enunciado, q.opcaoA, q.opcaoB, q.opcaoC, q.opcaoD)
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1509,9 +2203,12 @@ fun QuestoesScreen(
                                         Text(badgeText, fontSize = 11.sp, color = badgeFg, fontWeight = FontWeight.Bold)
                                     }
 
-                                    val typeLabel = when (q.tipo) {
-                                        "MULTIPLE_CHOICE" -> "A/B/C/D"
-                                        "TRUE_FALSE" -> "V ou F"
+                                    val typeLabel = when {
+                                        isCrossword -> "🧩 Cruzadinha"
+                                        isWordSearch -> "🔍 Caça-Palavras"
+                                        isMatch -> "Ligue / Colunas"
+                                        q.tipo == "MULTIPLE_CHOICE" -> "A/B/C/D"
+                                        q.tipo == "TRUE_FALSE" -> "V ou F"
                                         else -> "Aberta"
                                     }
                                     Box(
@@ -1538,7 +2235,7 @@ fun QuestoesScreen(
                                     modifier = Modifier
                                         .background(Color(0xFFE8EAF6), RoundedCornerShape(6.dp))
                                         .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
+                                    ) {
                                     Text("📌 BNCC: ${q.codigoBNCC}", fontSize = 10.sp, color = Color(0xFF283593), fontWeight = FontWeight.Bold)
                                 }
                             }
@@ -1556,7 +2253,24 @@ fun QuestoesScreen(
                                 color = Color(0xFF333333)
                             )
 
-                            if (q.tipo == "MULTIPLE_CHOICE") {
+                            if (isCrossword) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                val data = remember(q) { ActivityGridHelper.generateCrossword(q.opcaoA, q.opcaoB, q.opcaoC, q.opcaoD, q.enunciado) }
+                                CrosswordComposable(data = data)
+                            } else if (isWordSearch) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                val data = remember(q) { ActivityGridHelper.generateWordSearch(q.opcaoA, q.opcaoB, q.opcaoC, q.opcaoD, q.enunciado) }
+                                WordSearchComposable(data = data)
+                            } else if (isMatch) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                MatchColumnsView(
+                                    opcaoA = q.opcaoA,
+                                    opcaoB = q.opcaoB,
+                                    opcaoC = q.opcaoC,
+                                    opcaoD = q.opcaoD,
+                                    enunciado = q.enunciado
+                                )
+                            } else if (q.tipo == "MULTIPLE_CHOICE") {
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     if (q.opcaoA.isNotBlank()) Text("A) ${formatOptionText(q.opcaoA, "A")}", fontSize = 13.sp, color = Color(0xFF0F172A), fontWeight = FontWeight.SemiBold)
@@ -1591,18 +2305,45 @@ fun QuestoesScreen(
                                     )
                                 }
 
-                                Button(
-                                    onClick = {
-                                        questionToAdapt = q
-                                        showAdaptDialog = true
-                                    },
-                                    shape = RoundedCornerShape(8.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9C27B0)),
-                                    modifier = Modifier.height(34.dp)
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text("🪄 ", fontSize = 11.sp)
-                                        Text("Adaptar IA", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Button(
+                                        onClick = {
+                                            val prefs = context.getSharedPreferences("provalino_prefs", Context.MODE_PRIVATE)
+                                            val savedEscola = prefs.getString("saved_escola_padrao", null) ?: "Escola Municipal / Estadual Provalino"
+                                            PdfShareHelper.shareActivityAsPdf(
+                                                context = context,
+                                                questao = q,
+                                                nomeEscola = savedEscola
+                                            )
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                                        modifier = Modifier.height(34.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp)
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text("📤 ", fontSize = 10.sp)
+                                            Text("PDF", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            questionToAdapt = q
+                                            showAdaptDialog = true
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9C27B0)),
+                                        modifier = Modifier.height(34.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp)
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text("🪄 ", fontSize = 10.sp)
+                                            Text("Adaptar IA", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
                                     }
                                 }
                             }
@@ -1771,7 +2512,6 @@ fun TypeChip(label: String, selected: Boolean, onClick: () -> Unit) {
 fun ProvasScreen(
     viewModel: ProvalinoViewModel,
     provas: List<Prova>,
-    turmas: List<Turma>,
     alunos: List<AlunoNecessidadeEspecial> = emptyList(),
     onVerDetalhes: (Prova) -> Unit
 ) {
@@ -1779,6 +2519,7 @@ fun ProvasScreen(
     var searchQuery by remember { mutableStateOf("") }
     var filterCategory by remember { mutableStateOf("TODAS") } // "TODAS", "ALUNO", "MATERIA"
     var showCreateProvaDialog by remember { mutableStateOf(false) }
+    var selectedDocType by remember { mutableStateOf("Atividade") }
 
     // Dialog state for modern AI Exam Generator
     var generationMode by remember { mutableStateOf(if (alunos.isNotEmpty()) "ALUNO" else "GERAL") } // "ALUNO" or "GERAL"
@@ -1790,6 +2531,11 @@ fun ProvasScreen(
     var qtdQuestoes by remember { mutableStateOf("4") }
     var customTitulo by remember { mutableStateOf("") }
     var expandedSerie by remember { mutableStateOf(false) }
+
+    val isOffline by viewModel.isOffline.collectAsState()
+    LaunchedEffect(Unit) {
+        viewModel.checkNetworkStatus()
+    }
 
     val filteredProvas = provas.filter { p ->
         val query = searchQuery.lowercase().trim()
@@ -1813,18 +2559,50 @@ fun ProvasScreen(
         contentPadding = PaddingValues(bottom = 88.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        if (isOffline) {
+            item {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFFFEF3C7),
+                    border = BorderStroke(1.dp, Color(0xFFFCD34D)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text("📡", fontSize = 20.sp)
+                        Column {
+                            Text(
+                                text = "Modo Offline Ativo",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = Color(0xFF92400E)
+                            )
+                            Text(
+                                text = "Suas atividades e questões estão salvas localmente e disponíveis sem conexão com a internet.",
+                                fontSize = 11.sp,
+                                color = Color(0xFFB45309),
+                                lineHeight = 15.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Text(
-                        text = "📝 Minhas Provas Geradas",
+                        text = "📝 Minhas Atividades Geradas",
                         fontWeight = FontWeight.Bold,
                         fontSize = 18.sp,
                         color = Color(0xFF333333)
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "Provas completas adaptadas por aluno e matéria",
+                        text = "Atividades e avaliações adaptadas por aluno e matéria",
                         fontSize = 12.sp,
                         color = Color(0xFF666666)
                     )
@@ -1839,9 +2617,9 @@ fun ProvasScreen(
                         .height(48.dp)
                         .testTag("btn_criar_prova_header")
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = "Nova Prova", modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.Add, contentDescription = "Nova Atividade", modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("✨ Gerar Nova Prova com IA", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("✨ Gerar Nova Atividade com IA", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
 
                 // Campo de Busca
@@ -1898,15 +2676,14 @@ fun ProvasScreen(
         if (filteredProvas.isEmpty()) {
             item {
                 ProvalinoEmptyState(
-                    title = if (searchQuery.isBlank()) "Sua Biblioteca de Provas está Vazia" else "Nenhum resultado encontrado",
-                    description = if (searchQuery.isBlank()) "Sua coleção de avaliações e atividades adaptadas ficará salva aqui! Que tal gerar sua primeira prova completa agora?" else "Não encontramos resultados para '$searchQuery'. Tente ajustar sua busca.",
-                    buttonText = if (searchQuery.isBlank()) "✨ Gerar Prova com Provalino AI" else null,
+                    title = if (searchQuery.isBlank()) "Sua Biblioteca de Atividades está Vazia" else "Nenhum resultado encontrado",
+                    description = if (searchQuery.isBlank()) "Sua coleção de atividades e avaliações adaptadas ficará salva aqui! Que tal gerar sua primeira atividade completa agora?" else "Não encontramos resultados para '$searchQuery'. Tente ajustar sua busca.",
+                    buttonText = if (searchQuery.isBlank()) "✨ Gerar Atividade com Provalino AI" else null,
                     onButtonClick = if (searchQuery.isBlank()) { { showCreateProvaDialog = true } } else null
                 )
             }
         } else {
             items(filteredProvas) { prova ->
-                val associatedTurma = turmas.find { it.id == prova.turmaId }
                 val qCount = if (prova.questoesIds.isBlank()) 0 else prova.questoesIds.split(",").size
 
                 Card(
@@ -1947,7 +2724,7 @@ fun ProvasScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Delete,
-                                    contentDescription = "Deletar Prova",
+                                    contentDescription = "Deletar Atividade",
                                     tint = Color(0xFFE53935)
                                 )
                             }
@@ -1955,7 +2732,7 @@ fun ProvasScreen(
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        // Badges da Prova
+                        // Badges da Atividade
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -1967,17 +2744,15 @@ fun ProvasScreen(
                                         .background(Color(0xFFE8F5E9), RoundedCornerShape(8.dp))
                                         .padding(horizontal = 8.dp, vertical = 4.dp)
                                 ) {
-                                    Text("✅ $qCount Questões Prontas", fontSize = 11.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
+                                    Text("✅ $qCount Questões", fontSize = 11.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
                                 }
 
-                                associatedTurma?.let { t ->
-                                    Box(
-                                        modifier = Modifier
-                                            .background(Color(0xFFFFF3E0), RoundedCornerShape(8.dp))
-                                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                                    ) {
-                                        Text("🏫 ${t.nome}", fontSize = 11.sp, color = Color(0xFFE65100), fontWeight = FontWeight.Bold)
-                                    }
+                                 Box(
+                                    modifier = Modifier
+                                        .background(Color(0xFFF0FDF4), RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 6.dp, vertical = 4.dp)
+                                ) {
+                                    Text("💾 Offline", fontSize = 11.sp, color = Color(0xFF166534), fontWeight = FontWeight.Bold)
                                 }
                             }
 
@@ -1991,7 +2766,7 @@ fun ProvasScreen(
                                 Spacer(modifier = Modifier.width(2.dp))
                                 Icon(
                                     imageVector = Icons.Default.PlayArrow,
-                                    contentDescription = "Ver Prova",
+                                    contentDescription = "Ver Atividade",
                                     tint = Color(0xFF1E88E5),
                                     modifier = Modifier.size(14.dp)
                                 )
@@ -2005,7 +2780,7 @@ fun ProvasScreen(
         // Ad Banner Component
         item {
             AdBannerView(
-                title = "Provas Adaptadas & AdMob",
+                title = "Atividades Adaptadas & AdMob",
                 description = "Monetização e parcerias ativas para manter o Provalino AI gratuito para professores."
             )
         }
@@ -2023,7 +2798,7 @@ fun ProvasScreen(
             "1º Ano Ensino Médio", "2º Ano Ensino Médio", "3º Ano Ensino Médio"
         )
         val perfisAdaptacao = listOf(
-            "REGULAR" to "🎓 Regular / Turma Toda",
+            "REGULAR" to "🎓 Atividade Geral / Sem Adaptação",
             "TEA" to "🧩 TEA (Autismo / DUA)",
             "TDAH" to "⚡ TDAH (Foco e Síntese)",
             "DISLEXIA" to "📖 Dislexia (Leitura Clara)",
@@ -2042,7 +2817,7 @@ fun ProvasScreen(
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("✨", fontSize = 24.sp)
-                    Text("Gerar Prova Pronta com Provalino AI", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
+                    Text("Gerar Atividade com Provalino AI", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
                 }
             },
             text = {
@@ -2052,7 +2827,39 @@ fun ProvasScreen(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    // Alternância: Aluno da Carteira vs Geração para Turma/Geral
+                    Text("Nomear Documento como:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val isAtividade = selectedDocType == "Atividade"
+                        OutlinedButton(
+                            onClick = { selectedDocType = "Atividade" },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (isAtividade) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                            ),
+                            border = BorderStroke(if (isAtividade) 2.dp else 1.dp, if (isAtividade) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("📝 Atividade", fontSize = 12.sp, fontWeight = if (isAtividade) FontWeight.Bold else FontWeight.Normal)
+                        }
+
+                        val isAvaliacao = selectedDocType == "Avaliação"
+                        OutlinedButton(
+                            onClick = { selectedDocType = "Avaliação" },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (isAvaliacao) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                            ),
+                            border = BorderStroke(if (isAvaliacao) 2.dp else 1.dp, if (isAvaliacao) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("📋 Avaliação", fontSize = 12.sp, fontWeight = if (isAvaliacao) FontWeight.Bold else FontWeight.Normal)
+                        }
+                    }
+
+                    // Alternância: Aluno da Carteira vs Geração Geral
                     if (alunos.isNotEmpty()) {
                         Row(
                             modifier = Modifier
@@ -2083,7 +2890,7 @@ fun ProvasScreen(
                                 modifier = Modifier.weight(1f).height(36.dp),
                                 contentPadding = PaddingValues(0.dp)
                             ) {
-                                Text("🏫 Turma / Geral", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("🏫 Atividade Geral", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -2109,8 +2916,21 @@ fun ProvasScreen(
                                 ) {
                                     Text(aluno.avatarEmoji.ifBlank { "🧩" }, fontSize = 18.sp)
                                     Column(modifier = Modifier.weight(1f)) {
+                                        val displayNecessidade = when (aluno.necessidade) {
+                                            "TEA" -> "TEA 🧩"
+                                            "SINDROME_DOWN" -> "Síndrome de Down 💛"
+                                            "TDAH" -> "TDAH ⚡"
+                                            "DISLEXIA" -> "Dislexia 📖"
+                                            "DEF_INTELECTUAL" -> "Def. Intelectual 🧠"
+                                            "BAIXA_VISAO", "ACESSIBILIDADE_VISUAL" -> "Baixa Visão 👁️"
+                                            "SURDEZ", "ACESSIBILIDADE_LINGUISTICA" -> "Surdez 👂"
+                                            "SUPORTE_COGNITIVO" -> "Apoio Cognitivo 🌸"
+                                            "ALTAS_HABILIDADES" -> "Altas Habilidades 🚀"
+                                            else -> aluno.necessidade
+                                        }
+                                        val suporteSuffix = if (aluno.nivelSuporte.isNotBlank()) " • ${aluno.nivelSuporte}" else ""
                                         Text(aluno.nome, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
-                                        Text("${aluno.serieAno} • ${aluno.necessidade} (${aluno.nivelSuporte})", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("${aluno.serieAno} • $displayNecessidade$suporteSuffix", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                     RadioButton(
                                         selected = isSelected,
@@ -2157,7 +2977,7 @@ fun ProvasScreen(
                             }
                         }
 
-                        Text("Perfil Pedagógico da Prova:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
+                        Text("Perfil Pedagógico da Atividade:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             perfisAdaptacao.forEach { (code, label) ->
                                 val isSel = selectedPerfil == code
@@ -2225,7 +3045,7 @@ fun ProvasScreen(
                             return@Button
                         }
                         if (customAssunto.isBlank()) {
-                            Toast.makeText(context, "Por favor, descreva o conteúdo ou assunto da prova.", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Por favor, descreva o conteúdo ou assunto da atividade.", Toast.LENGTH_SHORT).show()
                             return@Button
                         }
 
@@ -2236,24 +3056,26 @@ fun ProvasScreen(
                                 aluno = aluno,
                                 subject = finalSubject,
                                 grade = aluno.serieAno.ifBlank { selectedSerie },
-                                count = count
+                                count = count,
+                                docType = selectedDocType
                             )
-                            Toast.makeText(context, "Gerando prova adaptada para ${aluno.nome}...", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Gerando ${selectedDocType.lowercase()} adaptada para ${aluno.nome}...", Toast.LENGTH_SHORT).show()
                         } else {
                             viewModel.generateAndCreateProvaCustom(
-                                titulo = "Avaliação: $selectedMateria",
+                                titulo = "$selectedDocType: $selectedMateria",
                                 subject = finalSubject,
                                 grade = selectedSerie,
                                 profile = selectedPerfil,
-                                count = count
+                                count = count,
+                                docType = selectedDocType
                             )
-                            Toast.makeText(context, "Gerando avaliação completa com Provalino AI...", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Gerando $selectedDocType completa com Provalino AI...", Toast.LENGTH_SHORT).show()
                         }
                         showCreateProvaDialog = false
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5))
                 ) {
-                    Text("✨ Gerar Prova Completa (2 🪙)", fontWeight = FontWeight.Bold)
+                    Text("✨ Gerar $selectedDocType Completa (2 🪙)", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
@@ -2270,89 +3092,225 @@ fun ProvasScreen(
 @Composable
 fun NovaProvaScreen(
     viewModel: ProvalinoViewModel,
-    turmas: List<Turma>,
-    questoes: List<Questao>
+    questoes: List<Questao>,
+    alunos: List<AlunoNecessidadeEspecial> = emptyList()
 ) {
     var titulo by remember { mutableStateOf("") }
     var descricao by remember { mutableStateOf("") }
-    var selectedTurmaId by remember { mutableStateOf<Int?>(null) }
+    var selectedAlunoId by remember { mutableStateOf<Int?>(null) }
+    var selectedPerfilFilter by remember { mutableStateOf("TODOS") }
     val selectedQuestions by viewModel.selectedQuestions.collectAsState()
 
     val context = LocalContext.current
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        contentPadding = PaddingValues(bottom = 88.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                shape = RoundedCornerShape(20.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+    val filteredQuestoes = if (selectedPerfilFilter == "TODOS") {
+        questoes
+    } else {
+        questoes.filter { it.perfilAdaptacao == selectedPerfilFilter }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 120.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    shape = RoundedCornerShape(20.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
                 ) {
-                    Text(
-                        text = "📝 Nova Prova",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp,
-                        color = Color(0xFF1E88E5)
-                    )
-
-                    OutlinedTextField(
-                        value = titulo,
-                        onValueChange = { titulo = it },
-                        label = { Text("Título da Avaliação (Ex: Prova Mensal de Ciências)") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("nova_prova_input_titulo"),
-                        shape = RoundedCornerShape(12.dp),
-                        singleLine = true
-                    )
-
-                    OutlinedTextField(
-                        value = descricao,
-                        onValueChange = { descricao = it },
-                        label = { Text("Instruções ou Descrição (Opcional)") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("nova_prova_input_desc"),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-
-                    Text("Vincular a uma Turma:", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    if (turmas.isEmpty()) {
-                        Text(
-                            "Você não possui turmas cadastradas. Cadastre na aba 'Turmas' para organizar.",
-                            color = Color.Red,
-                            fontSize = 12.sp
-                        )
-                    } else {
-                        Row(
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            turmas.forEach { t ->
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("📚", fontSize = 20.sp)
+                                Text(
+                                    text = "Meu Banco de Questões",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 18.sp,
+                                    color = Color(0xFF1E88E5)
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .background(
+                                        if (selectedQuestions.size >= 10) Color(0xFFFFEBEE) else Color(0xFFE8F5E9),
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = if (selectedQuestions.isEmpty()) "Nenhuma questão selecionada" else "${selectedQuestions.size} de 10 questões selecionadas",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (selectedQuestions.size >= 10) Color(0xFFC62828) else Color(0xFF2E7D32),
+                                    maxLines = 1
+                                )
+                            }
+                        }
+
+                        Text("Nomear Documento como:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        var selectedTipoNova by remember { mutableStateOf("Atividade") }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            val isAtiv = selectedTipoNova == "Atividade"
+                            OutlinedButton(
+                                onClick = {
+                                    selectedTipoNova = "Atividade"
+                                    if (titulo.isBlank() || titulo.startsWith("Avaliação", ignoreCase = true)) {
+                                        titulo = if (titulo.startsWith("Avaliação:", ignoreCase = true)) titulo.replaceFirst(Regex("^Avaliação:", RegexOption.IGNORE_CASE), "Atividade:")
+                                                 else if (titulo.startsWith("Avaliação", ignoreCase = true)) titulo.replaceFirst(Regex("^Avaliação", RegexOption.IGNORE_CASE), "Atividade")
+                                                 else "Atividade de "
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = if (isAtiv) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                                ),
+                                border = BorderStroke(if (isAtiv) 2.dp else 1.dp, if (isAtiv) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.5f)),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text("📝 Atividade", fontSize = 12.sp, fontWeight = if (isAtiv) FontWeight.Bold else FontWeight.Normal)
+                            }
+                            val isAval = selectedTipoNova == "Avaliação"
+                            OutlinedButton(
+                                onClick = {
+                                    selectedTipoNova = "Avaliação"
+                                    if (titulo.isBlank() || titulo.startsWith("Atividade", ignoreCase = true)) {
+                                        titulo = if (titulo.startsWith("Atividade:", ignoreCase = true)) titulo.replaceFirst(Regex("^Atividade:", RegexOption.IGNORE_CASE), "Avaliação:")
+                                                 else if (titulo.startsWith("Atividade", ignoreCase = true)) titulo.replaceFirst(Regex("^Atividade", RegexOption.IGNORE_CASE), "Avaliação")
+                                                 else "Avaliação de "
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = if (isAval) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                                ),
+                                border = BorderStroke(if (isAval) 2.dp else 1.dp, if (isAval) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.5f)),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text("📋 Avaliação", fontSize = 12.sp, fontWeight = if (isAval) FontWeight.Bold else FontWeight.Normal)
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = titulo,
+                            onValueChange = { titulo = it },
+                            label = { Text("Título do Documento (Ex: Atividade de Ciências)") },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("nova_prova_input_titulo"),
+                            shape = RoundedCornerShape(12.dp),
+                            singleLine = true
+                        )
+
+                        OutlinedTextField(
+                            value = descricao,
+                            onValueChange = { descricao = it },
+                            label = { Text("Instruções ou Descrição (Opcional)") },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("nova_prova_input_desc"),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+
+                        if (alunos.isNotEmpty()) {
+                            Text("Vincular a um Aluno Inclusivo (Opcional):", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF666666))
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                alunos.forEach { al ->
+                                    val isSelected = selectedAlunoId == al.id
+                                    Box(
+                                        modifier = Modifier
+                                            .background(
+                                                color = if (isSelected) Color(0xFF8E24AA) else Color(0xFFF3E5F5),
+                                                shape = RoundedCornerShape(8.dp)
+                                            )
+                                            .clickable {
+                                                selectedAlunoId = if (isSelected) null else al.id
+                                            }
+                                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                                    ) {
+                                        Text(
+                                            text = "${al.avatarEmoji.ifBlank { "🧑‍🎓" }} ${al.nome}",
+                                            color = if (isSelected) Color.White else Color(0xFF8E24AA),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.sp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        if (alunos.isEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFFF1F5F9), RoundedCornerShape(8.dp))
+                                    .padding(10.dp)
+                            ) {
+                                Text(
+                                    text = "📌 A atividade será gerada sem vínculo específico (Geral da Sala).",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF475569),
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // --- FILTROS DE QUESTÕES SALVAS ---
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Filtrar Questões Salvas por Perfil:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF333333))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val filterOptions = listOf(
+                                "TODOS" to "Todas 📚",
+                                "REGULAR" to "Regular 📝",
+                                "TEA" to "Autismo 🧩",
+                                "TDAH" to "TDAH ⚡",
+                                "DISLEXIA" to "Dislexia 📖",
+                                "SUPORTE_COGNITIVO" to "Apoio Cognitivo 🌸"
+                            )
+                            filterOptions.forEach { (code, label) ->
+                                val isSelected = selectedPerfilFilter == code
                                 Box(
                                     modifier = Modifier
                                         .background(
-                                            color = if (selectedTurmaId == t.id) Color(0xFF1E88E5) else Color(0xFFE3F2FD),
-                                            shape = RoundedCornerShape(8.dp)
+                                            color = if (isSelected) Color(0xFF0288D1) else Color(0xFFE1F5FE),
+                                            shape = RoundedCornerShape(10.dp)
                                         )
-                                        .clickable { selectedTurmaId = if (selectedTurmaId == t.id) null else t.id }
-                                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                                        .clickable { selectedPerfilFilter = code }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
                                 ) {
                                     Text(
-                                        text = t.nome,
-                                        color = if (selectedTurmaId == t.id) Color.White else Color(0xFF1E88E5),
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp
+                                        text = label,
+                                        color = if (isSelected) Color.White else Color(0xFF01579B),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
                                     )
                                 }
                             }
@@ -2360,153 +3318,240 @@ fun NovaProvaScreen(
                     }
                 }
             }
-        }
 
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Selecione as Questões (${selectedQuestions.size} selecionadas)",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp,
-                    color = Color(0xFF333333)
-                )
-
-                if (selectedQuestions.isNotEmpty()) {
-                    Text(
-                        text = "Limpar Seleção",
-                        color = Color(0xFFE53935),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clickable { viewModel.clearQuestionSelection() }
-                    )
-                }
-            }
-        }
-
-        if (questoes.isEmpty()) {
             item {
-                Card(
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                    shape = RoundedCornerShape(16.dp)
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text("📚", fontSize = 40.sp)
+                    Column {
                         Text(
-                            text = "Nenhuma questão disponível para selecionar.",
+                            text = "Selecione as Questões para a Atividade",
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF777777)
+                            fontSize = 15.sp,
+                            color = Color(0xFF333333)
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Por favor, adicione ou gere questões na aba 'Questões' antes de montar a prova.",
-                            fontSize = 12.sp,
-                            color = Color(0xFF999999),
-                            textAlign = TextAlign.Center
+                            text = "Toque nos cards para marcar/desmarcar (até 10)",
+                            fontSize = 11.sp,
+                            color = Color(0xFF666666)
                         )
                     }
                 }
             }
-        } else {
-            items(questoes) { q ->
-                val isSelected = selectedQuestions.contains(q.id)
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(
-                            width = if (isSelected) 2.dp else 0.dp,
-                            color = if (isSelected) Color(0xFF4CAF50) else Color.Transparent,
-                            shape = RoundedCornerShape(16.dp)
-                        )
-                        .clickable { viewModel.toggleQuestionSelection(q.id) },
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                    shape = RoundedCornerShape(16.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
+
+            if (filteredQuestoes.isEmpty()) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        shape = RoundedCornerShape(16.dp)
                     ) {
-                        Box(
+                        Column(
                             modifier = Modifier
-                                .size(24.dp)
-                                .background(
-                                    color = if (isSelected) Color(0xFF4CAF50) else Color(0xFFEEEEEE),
-                                    shape = CircleShape
-                                ),
-                            contentAlignment = Alignment.Center
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            if (isSelected) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = "Selecionada",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        Column {
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Box(
-                                    modifier = Modifier
-                                        .background(Color(0xFFEEEEEE), RoundedCornerShape(6.dp))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    val tLabel = when (q.tipo) {
-                                        "MULTIPLE_CHOICE" -> "Múltipla Escolha"
-                                        "TRUE_FALSE" -> "Verdadeiro / Falso"
-                                        else -> "Questão Discursiva"
-                                    }
-                                    Text(tLabel, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF555555))
-                                }
-                            }
+                            Text("📚", fontSize = 40.sp)
+                            Text(
+                                text = "Nenhuma questão encontrada para este filtro.",
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF777777)
+                            )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = q.enunciado,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF333333)
+                                text = "Tente alterar o filtro acima ou gere novas questões com IA na aba de Questões.",
+                                fontSize = 12.sp,
+                                color = Color(0xFF999999),
+                                textAlign = TextAlign.Center
                             )
                         }
                     }
                 }
+            } else {
+                items(filteredQuestoes) { q ->
+                    val isSelected = selectedQuestions.contains(q.id)
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(
+                                width = if (isSelected) 2.dp else 0.dp,
+                                color = if (isSelected) Color(0xFF2E7D32) else Color.Transparent,
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                            .clickable {
+                                val success = viewModel.toggleQuestionSelection(q.id, maxLimit = 10)
+                                if (!success) {
+                                    Toast.makeText(context, "⚠️ Limite máximo de 10 questões por avaliação atingido!", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                        colors = CardDefaults.cardColors(containerColor = if (isSelected) Color(0xFFF1F8E9) else Color.White),
+                        shape = RoundedCornerShape(16.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(26.dp)
+                                    .background(
+                                        color = if (isSelected) Color(0xFF2E7D32) else Color(0xFFE0E0E0),
+                                        shape = CircleShape
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = "Selecionada",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .background(Color(0xFFEEEEEE), RoundedCornerShape(6.dp))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        val isCrossword = ActivityGridHelper.isCrosswordQuestion(q.tipo, q.enunciado)
+                                        val isWordSearch = ActivityGridHelper.isWordSearchQuestion(q.tipo, q.enunciado)
+                                        val tLabel = when {
+                                            isCrossword -> "🧩 Cruzadinha"
+                                            isWordSearch -> "🔍 Caça-Palavras"
+                                            q.tipo == "MULTIPLE_CHOICE" -> "A/B/C/D"
+                                            q.tipo == "TRUE_FALSE" -> "V ou F"
+                                            else -> "Discursiva"
+                                        }
+                                        Text(tLabel, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF555555))
+                                    }
+
+                                    val (badgeText, badgeBg, badgeFg) = when (q.perfilAdaptacao) {
+                                        "TEA" -> Triple("🧩 Autismo", Color(0xFFE3F2FD), Color(0xFF0D47A1))
+                                        "TDAH" -> Triple("⚡ TDAH", Color(0xFFFFF8E1), Color(0xFFF57F17))
+                                        "DISLEXIA" -> Triple("📖 Dislexia", Color(0xFFF3E5F5), Color(0xFF4A148C))
+                                        "SUPORTE_COGNITIVO" -> Triple("🌸 Apoio Cognitivo", Color(0xFFFBE9E7), Color(0xFFD84315))
+                                        else -> Triple("📝 Regular", Color(0xFFECEFF1), Color(0xFF37474F))
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .background(badgeBg, RoundedCornerShape(6.dp))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(badgeText, fontSize = 10.sp, color = badgeFg, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = q.enunciado,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF333333)
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
 
-        item {
-            Button(
-                onClick = {
-                    if (titulo.isBlank()) {
-                        Toast.makeText(context, "Por favor, dê um título para a prova.", Toast.LENGTH_SHORT).show()
-                        return@Button
-                    }
-                    if (selectedQuestions.isEmpty()) {
-                        Toast.makeText(context, "Selecione pelo menos 1 questão.", Toast.LENGTH_SHORT).show()
-                        return@Button
-                    }
-                    viewModel.createProva(titulo, descricao, selectedTurmaId)
-                    Toast.makeText(context, "Prova '$titulo' criada com sucesso!", Toast.LENGTH_SHORT).show()
-                },
+        // --- BARRA FIXA NO RODAPÉ (STICKY BOTTOM ACTION DOCK) ---
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.BottomCenter),
+            shadowElevation = 12.dp,
+            color = Color.White,
+            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+        ) {
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(54.dp)
-                    .testTag("nova_prova_btn_concluir"),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("Salvar e Concluir Prova", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .background(
+                                color = if (selectedQuestions.size in 1..10) Color(0xFFE8F5E9) else Color(0xFFFFF3E0),
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = if (selectedQuestions.isEmpty()) "Nenhuma questão selecionada" else "${selectedQuestions.size} de 10 questões selecionadas",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (selectedQuestions.size in 1..10) Color(0xFF2E7D32) else Color(0xFFE65100)
+                        )
+                    }
+
+                    if (selectedQuestions.isNotEmpty()) {
+                        Text(
+                            text = "Limpar seleção",
+                            color = Color(0xFFD32F2F),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clickable { viewModel.clearQuestionSelection() }
+                        )
+                    }
+                }
+
+                Button(
+                    onClick = {
+                        if (titulo.isBlank()) {
+                            Toast.makeText(context, "Por favor, informe o título da atividade.", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        if (selectedQuestions.isEmpty()) {
+                            Toast.makeText(context, "Selecione pelo menos 1 questão do banco.", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        if (selectedQuestions.size > 10) {
+                            Toast.makeText(context, "⚠️ A atividade pode conter no máximo 10 questões.", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        val finalDesc = if (selectedAlunoId != null) {
+                            val alName = alunos.find { it.id == selectedAlunoId }?.nome ?: ""
+                            if (descricao.isNotBlank()) "Aluno: $alName | $descricao" else "Aluno: $alName"
+                        } else {
+                            descricao
+                        }
+                        viewModel.createProva(titulo, finalDesc, null)
+                        Toast.makeText(context, "Atividade '$titulo' criada com sucesso!", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                        .testTag("nova_prova_btn_concluir"),
+                    enabled = selectedQuestions.isNotEmpty(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF2E7D32),
+                        disabledContainerColor = Color(0xFFE0E0E0)
+                    )
+                ) {
+                    Icon(Icons.Default.Check, contentDescription = "Salvar Atividade", modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (selectedQuestions.isEmpty()) "Selecione questões abaixo para gerar" else "⚡ Salvar Atividade (${selectedQuestions.size} ${if (selectedQuestions.size == 1) "questão" else "questões"})",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                }
             }
         }
     }
@@ -2518,20 +3563,45 @@ fun NovaProvaScreen(
 fun DetalhesProvaScreen(
     viewModel: ProvalinoViewModel,
     prova: Prova,
-    turmas: List<Turma>,
     grades: List<NotaAluno>,
     onVoltar: () -> Unit
 ) {
     var detailTab by remember { mutableIntStateOf(0) }
     var loadedQuestoes by remember { mutableStateOf<List<Questao>>(emptyList()) }
-    var nomeEscola by remember { mutableStateOf("Escola Municipal / Estadual Provalino") }
+    
+    val teacherProfile by viewModel.teacherUserProfile.collectAsState()
+    val context = LocalContext.current
+    val initialEscola = remember(teacherProfile) {
+        val fromProfile = teacherProfile["escola_padrao"]
+        if (!fromProfile.isNullOrBlank()) {
+            fromProfile
+        } else {
+            val prefs = context.getSharedPreferences("provalino_prefs", Context.MODE_PRIVATE)
+            val savedLocal = prefs.getString("saved_escola_padrao", null)
+            if (!savedLocal.isNullOrBlank()) savedLocal else "Escola Municipal / Estadual Provalino"
+        }
+    }
+    var nomeEscola by remember(initialEscola) { mutableStateOf(initialEscola) }
     var showBancoDialog by remember { mutableStateOf(false) }
+    var pendingAdExportAction by remember { mutableStateOf<String?>(null) }
     val dbQuestoes by viewModel.questoes.collectAsState()
+    val lastGeneratedProvaId by viewModel.lastGeneratedProvaId.collectAsState()
     var selectedBancoQuestao by remember { mutableStateOf<Questao?>(null) }
     val coroutineScope = rememberCoroutineScope()
-    val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
-    val associatedTurma = turmas.find { it.id == prova.turmaId }
+
+    var tipoDocumento by remember(prova) {
+        mutableStateOf(
+            if (prova.titulo.contains("avaliação", ignoreCase = true) || prova.titulo.contains("avaliacao", ignoreCase = true)) "Avaliação" else "Atividade"
+        )
+    }
+    var currentTitulo by remember(prova) { mutableStateOf(prova.titulo) }
+    var showEditTitleDialog by remember { mutableStateOf(false) }
+
+    var pdfFontSize by remember { mutableStateOf("NORMAL") } // "NORMAL", "AMPLIADA", "VISAO_SUBNORMAL"
+    var pdfFontFamily by remember { mutableStateOf("PADRAO") } // "PADRAO", "ATKINSON", "LEXEND"
+    var pdfHighContrast by remember { mutableStateOf(false) }
+    var showPdfAccessibilityDialog by remember { mutableStateOf(false) }
 
     remember(prova) {
         coroutineScope.launch {
@@ -2539,8 +3609,281 @@ fun DetalhesProvaScreen(
         }
     }
 
+    val executeExportAction: (String) -> Unit = { actionType ->
+        coroutineScope.launch {
+            val effectiveQuestoes = if (loadedQuestoes.isNotEmpty()) {
+                loadedQuestoes
+            } else {
+                val fetched = viewModel.getQuestoesForProva(prova)
+                if (fetched.isNotEmpty()) {
+                    loadedQuestoes = fetched
+                    fetched
+                } else loadedQuestoes
+            }
+            val effectiveProva = prova.copy(titulo = currentTitulo)
+            when (actionType) {
+                "PRINT" -> {
+                    val htmlContent = buildHtmlExamContent(
+                        prova = effectiveProva,
+                        questoes = effectiveQuestoes,
+                        escola = nomeEscola,
+                        docType = tipoDocumento,
+                        fontSizeScale = pdfFontSize,
+                        fontFamilyChoice = pdfFontFamily,
+                        highContrastMode = pdfHighContrast
+                    )
+                    val webView = WebView(context).apply {
+                        settings.javaScriptEnabled = true
+                        setBackgroundColor(android.graphics.Color.WHITE)
+                        loadDataWithBaseURL(null, htmlContent, "text/html; charset=utf-8", "UTF-8", null)
+                    }
+                    val printManager = context.getSystemService(Context.PRINT_SERVICE) as PrintManager
+                    val jobName = "${effectiveProva.titulo} - Provalino"
+                    val printAdapter = webView.createPrintDocumentAdapter(jobName)
+                    printManager.print(jobName, printAdapter, PrintAttributes.Builder().setMediaSize(PrintAttributes.MediaSize.ISO_A4).build())
+                }
+                "PDF" -> {
+                    PdfShareHelper.shareExamAsPdf(
+                        context = context,
+                        prova = effectiveProva,
+                        questoes = effectiveQuestoes,
+                        nomeEscola = nomeEscola,
+                        docType = tipoDocumento,
+                        fontSizeScale = pdfFontSize,
+                        fontFamilyChoice = pdfFontFamily,
+                        highContrastMode = pdfHighContrast
+                    )
+                }
+                "COPY" -> {
+                    val text = buildPrintableExamText(effectiveProva, effectiveQuestoes, nomeEscola, tipoDocumento)
+                    clipboardManager.setText(AnnotatedString(text))
+                    Toast.makeText(context, "$tipoDocumento copiada para a área de transferência!", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    val triggerExportAction: (String) -> Unit = { actionType ->
+        // Se for a última prova criada nesta sessão, executa imediatamente sem propaganda
+        if (prova.id != 0 && prova.id == lastGeneratedProvaId) {
+            executeExportAction(actionType)
+        } else {
+            pendingAdExportAction = actionType
+        }
+    }
+
+    if (pendingAdExportAction != null) {
+        val actionType = pendingAdExportAction!!
+        AdExportDialogFrame(
+            actionType = actionType,
+            onDismiss = { pendingAdExportAction = null },
+            onProceed = {
+                executeExportAction(actionType)
+            }
+        )
+    }
+
+    if (showEditTitleDialog) {
+        var editTitleText by remember { mutableStateOf(currentTitulo) }
+        AlertDialog(
+            onDismissRequest = { showEditTitleDialog = false },
+            title = { Text("Nomear Documento Gerado", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Classificação do Documento:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val isAtiv = tipoDocumento == "Atividade"
+                        OutlinedButton(
+                            onClick = {
+                                tipoDocumento = "Atividade"
+                                val old = "Avaliação"
+                                editTitleText = if (editTitleText.startsWith(old, ignoreCase = true)) {
+                                    editTitleText.replaceFirst(Regex("^$old:?", RegexOption.IGNORE_CASE), "Atividade:").replace("Atividade::", "Atividade:")
+                                } else if (!editTitleText.startsWith("Atividade", ignoreCase = true)) {
+                                    "Atividade: $editTitleText"
+                                } else editTitleText
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (isAtiv) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                            ),
+                            border = BorderStroke(if (isAtiv) 2.dp else 1.dp, if (isAtiv) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("📝 Atividade", fontSize = 12.sp, fontWeight = if (isAtiv) FontWeight.Bold else FontWeight.Normal)
+                        }
+
+                        val isAval = tipoDocumento == "Avaliação"
+                        OutlinedButton(
+                            onClick = {
+                                tipoDocumento = "Avaliação"
+                                val old = "Atividade"
+                                editTitleText = if (editTitleText.startsWith(old, ignoreCase = true)) {
+                                    editTitleText.replaceFirst(Regex("^$old:?", RegexOption.IGNORE_CASE), "Avaliação:").replace("Avaliação::", "Avaliação:")
+                                } else if (!editTitleText.startsWith("Avaliação", ignoreCase = true)) {
+                                    "Avaliação: $editTitleText"
+                                } else editTitleText
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (isAval) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                            ),
+                            border = BorderStroke(if (isAval) 2.dp else 1.dp, if (isAval) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("📋 Avaliação", fontSize = 12.sp, fontWeight = if (isAval) FontWeight.Bold else FontWeight.Normal)
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = editTitleText,
+                        onValueChange = { editTitleText = it },
+                        label = { Text("Título da Atividade / Avaliação") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (editTitleText.isNotBlank()) {
+                            currentTitulo = editTitleText.trim()
+                            viewModel.updateProva(prova.copy(titulo = currentTitulo))
+                            if (currentTitulo.contains("avaliação", ignoreCase = true) || currentTitulo.contains("avaliacao", ignoreCase = true)) {
+                                tipoDocumento = "Avaliação"
+                            } else if (currentTitulo.contains("atividade", ignoreCase = true)) {
+                                tipoDocumento = "Atividade"
+                            }
+                        }
+                        showEditTitleDialog = false
+                    }
+                ) {
+                    Text("Salvar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditTitleDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    if (showPdfAccessibilityDialog) {
+        AlertDialog(
+            onDismissRequest = { showPdfAccessibilityDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("👁️", fontSize = 20.sp)
+                    Text("Acessibilidade Visual (PDF e Impressão)", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "💡 As alterações de fonte, tamanho e contraste são aplicadas EXCLUSIVAMENTE na folha do PDF e na Impressão, protegendo a tela do celular contra quebras visuais.",
+                        fontSize = 11.sp,
+                        color = Color(0xFF475569),
+                        lineHeight = 15.sp
+                    )
+
+                    // 1. Tamanho da Fonte
+                    Text("1. Tamanho da Fonte no PDF:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF1E293B))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(
+                            Triple("NORMAL", "Padrão", "13pt"),
+                            Triple("AMPLIADA", "Ampliada", "17pt"),
+                            Triple("VISAO_SUBNORMAL", "Subnormal", "21pt")
+                        ).forEach { (code, label, sizeHint) ->
+                            val isSel = pdfFontSize == code
+                            OutlinedButton(
+                                onClick = { pdfFontSize = code },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = if (isSel) Color(0xFFE0F2FE) else Color.Transparent
+                                ),
+                                border = BorderStroke(if (isSel) 2.dp else 1.dp, if (isSel) Color(0xFF0284C7) else Color(0xFFCBD5E1)),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(label, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal, color = if (isSel) Color(0xFF0369A1) else Color(0xFF334155))
+                                    Text(sizeHint, fontSize = 9.sp, color = Color(0xFF64748B))
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. Família da Fonte
+                    Text("2. Fonte Acessível (Tipografia):", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF1E293B))
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(
+                            Triple("PADRAO", "Arial / Sans-Serif Padrão", "Recomendada para turmas regulares"),
+                            Triple("ATKINSON", "Atkinson Hyperlegible", "Desenvolvida para Baixa Acuidade Visual"),
+                            Triple("LEXEND", "Lexend / OpenDyslexic", "Espaçamento otimizado para Dislexia")
+                        ).forEach { (code, title, desc) ->
+                            val isSel = pdfFontFamily == code
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(if (isSel) Color(0xFFF3E8FF) else Color(0xFFF8FAFC), RoundedCornerShape(8.dp))
+                                    .border(1.dp, if (isSel) Color(0xFF7C3AED) else Color(0xFFE2E8F0), RoundedCornerShape(8.dp))
+                                    .clickable { pdfFontFamily = code }
+                                    .padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(selected = isSel, onClick = { pdfFontFamily = code })
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Column {
+                                    Text(title, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF0F172A))
+                                    Text(desc, fontSize = 10.sp, color = Color(0xFF64748B))
+                                }
+                            }
+                        }
+                    }
+
+                    // 3. Alto Contraste AEE
+                    Text("3. Contraste da Folha / PDF:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF1E293B))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = { pdfHighContrast = false },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (!pdfHighContrast) Color(0xFFF1F5F9) else Color.Transparent
+                            ),
+                            border = BorderStroke(if (!pdfHighContrast) 2.dp else 1.dp, if (!pdfHighContrast) Color(0xFF0F172A) else Color(0xFFCBD5E1)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("☀️ Fundo Branco", fontSize = 11.5.sp, fontWeight = if (!pdfHighContrast) FontWeight.Bold else FontWeight.Normal)
+                        }
+                        OutlinedButton(
+                            onClick = { pdfHighContrast = true },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (pdfHighContrast) Color(0xFFFEF9C3) else Color.Transparent
+                            ),
+                            border = BorderStroke(if (pdfHighContrast) 2.dp else 1.dp, if (pdfHighContrast) Color(0xFFCA8A04) else Color(0xFFCBD5E1)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("🟨 Amarelo AEE", fontSize = 11.5.sp, fontWeight = if (pdfHighContrast) FontWeight.Bold else FontWeight.Normal, color = Color(0xFF854D0E))
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { showPdfAccessibilityDialog = false }) {
+                    Text("Salvar Configurações")
+                }
+            }
+        )
+    }
+
     Column(modifier = Modifier.fillMaxSize().background(Color(0xFFF7F9FC))) {
-        // Top Header - Compacto e elegante para focar na prova
+        // Top Header - Compacto e elegante para focar na atividade/avaliação
         ClayCard(
             modifier = Modifier
                 .fillMaxWidth()
@@ -2556,15 +3899,26 @@ fun DetalhesProvaScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "📝 ${prova.titulo}",
-                        fontWeight = FontWeight.Black,
-                        fontSize = 14.sp,
-                        color = ClayColors.TealDark,
+                    Row(
                         modifier = Modifier.weight(1f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "📝 $currentTitulo",
+                            fontWeight = FontWeight.Black,
+                            fontSize = 14.sp,
+                            color = ClayColors.TealDark,
+                            modifier = Modifier.weight(1f, fill = false),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        IconButton(
+                            onClick = { showEditTitleDialog = true },
+                            modifier = Modifier.size(24.dp).padding(start = 4.dp)
+                        ) {
+                            Icon(Icons.Default.Edit, contentDescription = "Editar Nome", tint = ClayColors.TealDark, modifier = Modifier.size(14.dp))
+                        }
+                    }
                     Spacer(modifier = Modifier.width(8.dp))
                     ClayButton(
                         onClick = onVoltar,
@@ -2578,10 +3932,77 @@ fun DetalhesProvaScreen(
                         Text("↩ Voltar", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
+
+                // Seletor de Tipo de Documento: Atividade vs Avaliação
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Nomear como:",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = ClayColors.TextSecondary
+                    )
+                    val isAtividadeSel = tipoDocumento == "Atividade"
+                    OutlinedButton(
+                        onClick = {
+                            if (tipoDocumento != "Atividade") {
+                                tipoDocumento = "Atividade"
+                                val updatedTitle = if (currentTitulo.startsWith("Avaliação:", ignoreCase = true)) {
+                                    currentTitulo.replaceFirst(Regex("^Avaliação:", RegexOption.IGNORE_CASE), "Atividade:")
+                                } else if (currentTitulo.startsWith("Avaliação", ignoreCase = true)) {
+                                    currentTitulo.replaceFirst(Regex("^Avaliação", RegexOption.IGNORE_CASE), "Atividade")
+                                } else if (!currentTitulo.startsWith("Atividade", ignoreCase = true)) {
+                                    "Atividade: $currentTitulo"
+                                } else currentTitulo
+                                currentTitulo = updatedTitle
+                                viewModel.updateProva(prova.copy(titulo = updatedTitle))
+                            }
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (isAtividadeSel) Color(0xFFE8F5E9) else Color.Transparent
+                        ),
+                        border = BorderStroke(if (isAtividadeSel) 1.5.dp else 1.dp, if (isAtividadeSel) Color(0xFF2E7D32) else Color(0xFFCBD5E1)),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                        modifier = Modifier.height(30.dp)
+                    ) {
+                        Text("📝 Atividade", fontSize = 11.sp, fontWeight = if (isAtividadeSel) FontWeight.Bold else FontWeight.Normal, color = if (isAtividadeSel) Color(0xFF2E7D32) else Color(0xFF475569))
+                    }
+                    val isAvaliacaoSel = tipoDocumento == "Avaliação"
+                    OutlinedButton(
+                        onClick = {
+                            if (tipoDocumento != "Avaliação") {
+                                tipoDocumento = "Avaliação"
+                                val updatedTitle = if (currentTitulo.startsWith("Atividade:", ignoreCase = true)) {
+                                    currentTitulo.replaceFirst(Regex("^Atividade:", RegexOption.IGNORE_CASE), "Avaliação:")
+                                } else if (currentTitulo.startsWith("Atividade", ignoreCase = true)) {
+                                    currentTitulo.replaceFirst(Regex("^Atividade", RegexOption.IGNORE_CASE), "Avaliação")
+                                } else if (!currentTitulo.startsWith("Avaliação", ignoreCase = true)) {
+                                    "Avaliação: $currentTitulo"
+                                } else currentTitulo
+                                currentTitulo = updatedTitle
+                                viewModel.updateProva(prova.copy(titulo = updatedTitle))
+                            }
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (isAvaliacaoSel) Color(0xFFEDE7F6) else Color.Transparent
+                        ),
+                        border = BorderStroke(if (isAvaliacaoSel) 1.5.dp else 1.dp, if (isAvaliacaoSel) Color(0xFF6A1B9A) else Color(0xFFCBD5E1)),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                        modifier = Modifier.height(30.dp)
+                    ) {
+                        Text("📋 Avaliação", fontSize = 11.sp, fontWeight = if (isAvaliacaoSel) FontWeight.Bold else FontWeight.Normal, color = if (isAvaliacaoSel) Color(0xFF6A1B9A) else Color(0xFF475569))
+                    }
+                }
+
                 ClayTextField(
                     value = nomeEscola,
                     onValueChange = { nomeEscola = it },
-                    label = "Nome da Escola (cabeçalho da prova)",
+                    label = "Nome da Escola",
                     placeholder = "Ex: E.E. Professor João da Silva",
                     accentColor = ClayColors.Teal
                 )
@@ -2593,28 +4014,28 @@ fun DetalhesProvaScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             ClayTabButton(
                 selected = detailTab == 0,
                 onClick = { detailTab = 0 },
-                title = "Visualização & PDF",
+                title = "Ver & PDF",
                 icon = "👁️",
                 selectedColor = ClayColors.Green,
                 selectedDarkShadow = ClayColors.GreenDark,
                 modifier = Modifier
-                    .weight(1.2f)
+                    .weight(1f)
                     .testTag("tab_detalhe_visualizar")
             )
             ClayTabButton(
                 selected = detailTab == 1,
                 onClick = { detailTab = 1 },
-                title = "Dar Notas",
+                title = "Notas",
                 icon = "✍️",
                 selectedColor = ClayColors.Blue,
                 selectedDarkShadow = ClayColors.BlueDark,
                 modifier = Modifier
-                    .weight(1f)
+                    .weight(0.9f)
                     .testTag("tab_detalhe_corrigir")
             )
             ClayTabButton(
@@ -2625,7 +4046,7 @@ fun DetalhesProvaScreen(
                 selectedColor = ClayColors.Orange,
                 selectedDarkShadow = ClayColors.OrangeDark,
                 modifier = Modifier
-                    .weight(1f)
+                    .weight(1.1f)
                     .testTag("tab_detalhe_boletim")
             )
         }
@@ -2641,22 +4062,81 @@ fun DetalhesProvaScreen(
                 0 -> { // --- VISUALIZAR E EXPORTAR PDF ---
                     item {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            // Action Buttons: Imprimir, Compartilhar PDF, Compartilhar Texto e Copiar
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            // Badge de Cache Offline Local
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFFF0FDF4), RoundedCornerShape(10.dp))
+                                    .border(1.dp, Color(0xFFBBF7D0), RoundedCornerShape(10.dp))
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text("💾", fontSize = 12.sp)
+                                Text(
+                                    text = "Salvo com segurança • Visualização e Impressão 100% Offline",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF166534),
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            // Barra de Configuração de Acessibilidade Visual do PDF/Impressão
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFFF3E8FF), RoundedCornerShape(10.dp))
+                                    .border(1.dp, Color(0xFFD8B4FE), RoundedCornerShape(10.dp))
+                                    .clickable { showPdfAccessibilityDialog = true }
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text("👁️", fontSize = 15.sp)
+                                    Column {
+                                        Text(
+                                            text = "Acessibilidade no PDF / Impressão",
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF6B21A8)
+                                        )
+                                        Text(
+                                            text = "Aplicada exclusivamente no papel/PDF impresso",
+                                            fontSize = 9.5.sp,
+                                            color = Color(0xFF7E22CE)
+                                        )
+                                    }
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    val statusDesc = when {
+                                        pdfFontSize == "VISAO_SUBNORMAL" -> "Visão Subnormal"
+                                        pdfFontSize == "AMPLIADA" -> "Fonte 17pt"
+                                        pdfFontFamily == "ATKINSON" -> "Atkinson"
+                                        pdfFontFamily == "LEXEND" -> "Lexend"
+                                        pdfHighContrast -> "Amarelo AEE"
+                                        else -> "Padrão"
+                                    }
+                                    Surface(
+                                        color = Color(0xFF7C3AED),
+                                        shape = RoundedCornerShape(6.dp)
+                                    ) {
+                                        Text(
+                                            text = statusDesc,
+                                            color = Color.White,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Action Buttons: Imprimir, Compartilhar PDF e Copiar (Sem botão redundante)
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 ClayButton(
-                                    onClick = {
-                                        val htmlContent = buildHtmlExamContent(prova, associatedTurma, loadedQuestoes, nomeEscola)
-                                        val webView = WebView(context).apply {
-                                            settings.javaScriptEnabled = true
-                                            setBackgroundColor(android.graphics.Color.WHITE)
-                                            loadDataWithBaseURL(null, htmlContent, "text/html; charset=utf-8", "UTF-8", null)
-                                        }
-                                        val printManager = context.getSystemService(Context.PRINT_SERVICE) as PrintManager
-                                        val jobName = "${prova.titulo} - Provalino"
-                                        val printAdapter = webView.createPrintDocumentAdapter(jobName)
-                                        printManager.print(jobName, printAdapter, PrintAttributes.Builder().setMediaSize(PrintAttributes.MediaSize.ISO_A4).build())
-                                    },
-                                    modifier = Modifier.weight(1f).height(46.dp),
+                                    onClick = { triggerExportAction("PRINT") },
+                                    modifier = Modifier.weight(1f).height(44.dp),
                                     shape = RoundedCornerShape(12.dp),
                                     backgroundColor = ClayColors.Red,
                                     darkShadowColor = ClayColors.RedDark,
@@ -2666,53 +4146,21 @@ fun DetalhesProvaScreen(
                                 }
 
                                 ClayButton(
-                                    onClick = {
-                                        PdfShareHelper.shareExamAsPdf(
-                                            context = context,
-                                            prova = prova,
-                                            turma = associatedTurma,
-                                            questoes = loadedQuestoes,
-                                            nomeEscola = nomeEscola
-                                        )
-                                    },
-                                    modifier = Modifier.weight(1.2f).height(46.dp),
+                                    onClick = { triggerExportAction("PDF") },
+                                    modifier = Modifier.weight(1f).height(44.dp),
                                     shape = RoundedCornerShape(12.dp),
                                     backgroundColor = ClayColors.Blue,
                                     darkShadowColor = ClayColors.BlueDark,
                                     contentPadding = PaddingValues(horizontal = 4.dp)
                                 ) {
-                                    Icon(Icons.Default.Share, contentDescription = "Compartilhar PDF", tint = Color.White, modifier = Modifier.size(15.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(Icons.Default.Share, contentDescription = "PDF", tint = Color.White, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(3.dp))
                                     Text("📤 PDF", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 12.sp)
                                 }
 
                                 ClayButton(
-                                    onClick = {
-                                        val text = buildPrintableExamText(prova, associatedTurma, loadedQuestoes, nomeEscola)
-                                        val sendIntent = android.content.Intent().apply {
-                                            action = android.content.Intent.ACTION_SEND
-                                            putExtra(android.content.Intent.EXTRA_TEXT, text)
-                                            type = "text/plain"
-                                        }
-                                        val shareIntent = android.content.Intent.createChooser(sendIntent, "Compartilhar Prova Adaptada (Texto)")
-                                        context.startActivity(shareIntent)
-                                    },
-                                    modifier = Modifier.weight(1f).height(46.dp),
-                                    shape = RoundedCornerShape(12.dp),
-                                    backgroundColor = ClayColors.Teal,
-                                    darkShadowColor = ClayColors.TealDark,
-                                    contentPadding = PaddingValues(horizontal = 4.dp)
-                                ) {
-                                    Text("💬 Texto", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 12.sp)
-                                }
-
-                                ClayButton(
-                                    onClick = {
-                                        val text = buildPrintableExamText(prova, associatedTurma, loadedQuestoes, nomeEscola)
-                                        clipboardManager.setText(AnnotatedString(text))
-                                        Toast.makeText(context, "Prova copiada para a área de transferência!", Toast.LENGTH_LONG).show()
-                                    },
-                                    modifier = Modifier.weight(0.9f).height(46.dp),
+                                    onClick = { triggerExportAction("COPY") },
+                                    modifier = Modifier.weight(1f).height(44.dp),
                                     shape = RoundedCornerShape(12.dp),
                                     backgroundColor = ClayColors.Green,
                                     darkShadowColor = ClayColors.GreenDark,
@@ -2724,14 +4172,14 @@ fun DetalhesProvaScreen(
 
                             ClayButton(
                                 onClick = { showBancoDialog = true },
-                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                                modifier = Modifier.fillMaxWidth().height(46.dp),
                                 shape = RoundedCornerShape(14.dp),
                                 backgroundColor = ClayColors.Purple,
                                 darkShadowColor = ClayColors.PurpleDark
                             ) {
                                 Icon(Icons.Default.Add, contentDescription = "Incluir", tint = Color.White)
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("➕ Incluir Questões do Banco de Dados", fontWeight = FontWeight.Bold, color = Color.White)
+                                Text("➕ Adicionar Questões", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.5.sp)
                             }
 
                             // Visual Preview Sheet (A4 Paper Style)
@@ -2743,15 +4191,45 @@ fun DetalhesProvaScreen(
                                 border = BorderStroke(1.5.dp, ClayColors.GreyLight)
                             ) {
                                 Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                                    // Header with Provalino Logo
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                        Column {
-                                            Text(text = nomeEscola.uppercase(), fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF333333))
-                                            Text(text = "AVALIAÇÃO ADAPTADA & INCLUSIVA", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF1E88E5))
+                                    // Header with Provalino Logo - Formatação ajustada e não quebrada
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .padding(end = 8.dp)
+                                        ) {
+                                            Text(
+                                                text = nomeEscola.uppercase(),
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp,
+                                                color = Color(0xFF333333),
+                                                lineHeight = 16.sp
+                                            )
+                                            Text(
+                                                text = "${tipoDocumento.uppercase()} ADAPTADA & INCLUSIVA",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 11.sp,
+                                                color = Color(0xFF1E88E5)
+                                            )
                                         }
-                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Row(
+                                            modifier = Modifier.wrapContentWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
                                             Text("🦉", fontSize = 24.sp)
-                                            Text("PROVALINO", fontWeight = FontWeight.ExtraBold, fontSize = 12.sp, color = Color(0xFF5D4037))
+                                            Text(
+                                                text = "PROVALINO",
+                                                fontWeight = FontWeight.ExtraBold,
+                                                fontSize = 12.sp,
+                                                color = Color(0xFF5D4037),
+                                                maxLines = 1,
+                                                softWrap = false
+                                            )
                                         }
                                     }
 
@@ -2759,13 +4237,12 @@ fun DetalhesProvaScreen(
 
                                     // Info box (No student name line and no instructions as requested!)
                                     Column(modifier = Modifier.fillMaxWidth().background(Color(0xFFF1F5F9), RoundedCornerShape(8.dp)).padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        Text(text = "Data: ____/____/_______  |  Turma: ${associatedTurma?.nome ?: "Geral"}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1E293B))
-                                        Text(text = "Matéria: ${associatedTurma?.materia ?: "Geral"}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1E293B))
+                                        Text(text = "Data: ____/____/_______  |  Aluno: _____________________________", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1E293B))
                                     }
 
                                     Spacer(modifier = Modifier.height(4.dp))
 
-                                    Text(text = prova.titulo, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF0F172A))
+                                    Text(text = currentTitulo, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF0F172A))
 
                                     // Questions List
                                     loadedQuestoes.forEachIndexed { idx, q ->
@@ -2785,7 +4262,25 @@ fun DetalhesProvaScreen(
                                                     modifier = Modifier.padding(vertical = 4.dp)
                                                 )
                                             }
-                                            if (q.tipo == "MULTIPLE_CHOICE") {
+                                            val isCrossword = ActivityGridHelper.isCrosswordQuestion(q.tipo, q.enunciado)
+                                            val isWordSearch = ActivityGridHelper.isWordSearchQuestion(q.tipo, q.enunciado)
+                                            val isMatch = MatchQuestionHelper.isMatchQuestion(q.tipo, q.enunciado, q.opcaoA, q.opcaoB)
+                                            if (isCrossword) {
+                                                val data = remember(q) { ActivityGridHelper.generateCrossword(q.opcaoA, q.opcaoB, q.opcaoC, q.opcaoD, q.enunciado) }
+                                                CrosswordComposable(data = data, modifier = Modifier.padding(top = 4.dp))
+                                            } else if (isWordSearch) {
+                                                val data = remember(q) { ActivityGridHelper.generateWordSearch(q.opcaoA, q.opcaoB, q.opcaoC, q.opcaoD, q.enunciado) }
+                                                WordSearchComposable(data = data, modifier = Modifier.padding(top = 4.dp))
+                                            } else if (isMatch) {
+                                                MatchColumnsView(
+                                                    opcaoA = q.opcaoA,
+                                                    opcaoB = q.opcaoB,
+                                                    opcaoC = q.opcaoC,
+                                                    opcaoD = q.opcaoD,
+                                                    enunciado = q.enunciado,
+                                                    modifier = Modifier.padding(top = 4.dp)
+                                                )
+                                            } else if (q.tipo == "MULTIPLE_CHOICE") {
                                                 Column(verticalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.padding(start = 4.dp, top = 2.dp)) {
                                                     if (q.opcaoA.isNotBlank()) Text(text = "A) ${formatOptionText(q.opcaoA, "A")}", fontSize = 13.sp, color = Color(0xFF0F172A), fontWeight = FontWeight.SemiBold)
                                                     if (q.opcaoB.isNotBlank()) Text(text = "B) ${formatOptionText(q.opcaoB, "B")}", fontSize = 13.sp, color = Color(0xFF0F172A), fontWeight = FontWeight.SemiBold)
@@ -2824,7 +4319,7 @@ fun DetalhesProvaScreen(
                                     // Footer phrase
                                     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                                         Text(
-                                            text = "Prova gerada utilizando o aplicativo Provalino - Atividades Adaptadas",
+                                            text = "$tipoDocumento gerada utilizando o aplicativo Provalino - Atividades Adaptadas",
                                             fontSize = 10.sp,
                                             fontStyle = FontStyle.Italic,
                                             color = Color(0xFF777777),
@@ -2893,7 +4388,7 @@ fun DetalhesProvaScreen(
                                     if (q.opcaoD.isNotBlank()) Text("D) ${q.opcaoD}", fontSize = 12.sp)
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Button(
                                         onClick = { selectedBancoQuestao = null },
                                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF78909C)),
@@ -2903,11 +4398,24 @@ fun DetalhesProvaScreen(
                                     }
                                     Button(
                                         onClick = {
+                                            PdfShareHelper.shareActivityAsPdf(
+                                                context = context,
+                                                questao = q,
+                                                nomeEscola = nomeEscola
+                                            )
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text("📤 PDF", fontWeight = FontWeight.Bold)
+                                    }
+                                    Button(
+                                        onClick = {
                                             viewModel.appendQuestaoToProva(prova.id, q.id)
                                             coroutineScope.launch {
                                                 loadedQuestoes = viewModel.getQuestoesForProva(prova)
                                             }
-                                            Toast.makeText(context, "Questão incluída com sucesso na prova!", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Questão incluída com sucesso na atividade!", Toast.LENGTH_SHORT).show()
                                             selectedBancoQuestao = null
                                             showBancoDialog = false
                                         },
@@ -2921,7 +4429,7 @@ fun DetalhesProvaScreen(
                         }
                     } else {
                         if (filteredDbQuestoes.isEmpty()) {
-                            Text("Nenhuma questão nova disponível no banco de dados.", fontSize = 13.sp, color = Color(0xFF666666))
+                            Text("Nenhuma questão nova disponível na biblioteca.", fontSize = 13.sp, color = Color(0xFF666666))
                         } else {
                             Text("Selecione uma questão para visualizar e incluir:", fontSize = 12.sp, color = Color(0xFF666666))
                             filteredDbQuestoes.forEach { q ->
@@ -2989,54 +4497,93 @@ fun formatOptionText(raw: String, prefixLetter: String): String {
     return cleaned
 }
 
-fun buildHtmlExamContent(prova: Prova, turma: Turma?, questoes: List<Questao>, escola: String): String {
+fun buildHtmlExamContent(
+    prova: Prova,
+    questoes: List<Questao>,
+    escola: String,
+    docType: String = "Atividade",
+    fontSizeScale: String = "NORMAL",
+    fontFamilyChoice: String = "PADRAO",
+    highContrastMode: Boolean = false
+): String {
+    val effectiveDocType = if (docType.contains("avaliação", ignoreCase = true) || docType.contains("avaliacao", ignoreCase = true) ||
+        prova.titulo.contains("avaliação", ignoreCase = true) || prova.titulo.contains("avaliacao", ignoreCase = true)) {
+        "AVALIAÇÃO"
+    } else {
+        "ATIVIDADE"
+    }
+
+    val fontStack = when (fontFamilyChoice.uppercase()) {
+        "ATKINSON" -> "'Atkinson Hyperlegible', Arial, sans-serif"
+        "LEXEND" -> "'Lexend', 'OpenDyslexic', Verdana, sans-serif"
+        else -> "Arial, Helvetica, sans-serif"
+    }
+
+    val (baseFontSize, headingFontSize, subHeaderFontSize, lineHeight, letterSpacing) = when (fontSizeScale.uppercase()) {
+        "AMPLIADA" -> listOf("16px", "19px", "14px", "1.6", "0.5px")
+        "VISAO_SUBNORMAL" -> listOf("20px", "24px", "17px", "1.75", "1.0px")
+        else -> listOf("13px", "16px", "12px", "1.4", "normal")
+    }
+
+    val bodyBg = if (highContrastMode) "#FFFFC2" else "#FFFFFF"
+    val boxBg = if (highContrastMode) "#FFFDE7" else "#F1F5F9"
+    val textColor = "#000000"
+    val borderColor = if (highContrastMode) "#000000" else "#CBD5E1"
+    val borderThick = if (highContrastMode) "2px" else "1.5px"
+
     val sb = java.lang.StringBuilder()
     sb.append("<!DOCTYPE html><html><head><meta charset='utf-8'>")
     sb.append("<meta name='viewport' content='width=device-width, initial-scale=1.0'>")
     sb.append("<style>")
     sb.append("@media print { body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } }")
     sb.append("* { box-sizing: border-box; }")
-    sb.append("body { font-family: Arial, Helvetica, sans-serif; padding: 20px; color: #000000 !important; background-color: #ffffff !important; line-height: 1.4; margin: 0; }")
+    sb.append("body { font-family: $fontStack; padding: 20px; color: $textColor !important; background-color: $bodyBg !important; line-height: $lineHeight; letter-spacing: $letterSpacing; margin: 0; font-size: $baseFontSize; }")
     sb.append(".header { border-bottom: 2px solid #111827; padding-bottom: 10px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }")
-    sb.append(".escola { font-size: 15px; font-weight: bold; color: #000000 !important; }")
-    sb.append(".sub-header { font-size: 12px; font-weight: bold; color: #0284C7 !important; }")
+    sb.append(".escola { font-size: $headingFontSize; font-weight: bold; color: $textColor !important; }")
+    sb.append(".sub-header { font-size: $subHeaderFontSize; font-weight: bold; color: #0284C7 !important; }")
     sb.append(".logo { font-size: 13px; font-weight: bold; color: #5D4037 !important; }")
-    sb.append(".info { background: #F1F5F9; padding: 10px 12px; border-radius: 6px; margin-bottom: 18px; font-size: 12px; font-weight: bold; color: #000000 !important; border: 1px solid #CBD5E1; }")
-    sb.append(".titulo { font-size: 16px; font-weight: bold; text-align: center; margin-bottom: 18px; color: #000000 !important; }")
-    sb.append(".questao { margin-bottom: 20px; font-size: 13px; color: #000000 !important; clear: both; page-break-inside: avoid; }")
-    sb.append(".enunciado { font-weight: bold; font-size: 13px; color: #000000 !important; line-height: 1.5; }")
-    sb.append(".caa-box { margin: 8px 0 10px 0; padding: 8px 10px; background-color: #F8FAFC; border: 1.5px solid #CBD5E1; border-radius: 8px; clear: both; }")
+    sb.append(".info { background: $boxBg; padding: 10px 12px; border-radius: 6px; margin-bottom: 18px; font-size: 12px; font-weight: bold; color: $textColor !important; border: 1px solid $borderColor; }")
+    sb.append(".titulo { font-size: $headingFontSize; font-weight: bold; text-align: center; margin-bottom: 18px; color: $textColor !important; }")
+    sb.append(".questao { margin-bottom: 20px; font-size: $baseFontSize; color: $textColor !important; clear: both; page-break-inside: avoid; }")
+    sb.append(".enunciado { font-weight: bold; font-size: $baseFontSize; color: $textColor !important; line-height: $lineHeight; }")
+    sb.append(".caa-box { margin: 8px 0 10px 0; padding: 8px 10px; background-color: $boxBg; border: $borderThick solid $borderColor; border-radius: 8px; clear: both; }")
     sb.append(".caa-title { font-size: 11px; font-weight: 800; color: #0F766E !important; margin-bottom: 6px; }")
     sb.append(".caa-cards { display: flex; flex-wrap: wrap; gap: 8px; }")
     sb.append(".caa-card { display: inline-block; background: #FFFFFF; border: 1.5px solid #0F766E; border-radius: 6px; padding: 4px 8px; text-align: center; min-width: 55px; }")
     sb.append(".caa-sym { font-size: 22px; line-height: 26px; }")
     sb.append(".caa-lbl { font-size: 9px; font-weight: 800; color: #0F172A !important; margin-top: 2px; }")
     sb.append(".opcoes-box { margin: 8px 0 4px 8px; clear: both; }")
-    sb.append(".opcao { font-size: 13px; font-weight: 600; color: #000000 !important; margin: 5px 0; line-height: 1.4; }")
-    sb.append(".tf-row { font-size: 13px; font-weight: bold; color: #000000 !important; margin: 8px 0 6px 8px; clear: both; }")
+    sb.append(".opcao { font-size: $baseFontSize; font-weight: 600; color: $textColor !important; margin: 5px 0; line-height: $lineHeight; }")
+    sb.append(".tf-row { font-size: $baseFontSize; font-weight: bold; color: $textColor !important; margin: 8px 0 6px 8px; clear: both; }")
     sb.append(".discursiva-box { border: 1.5px solid #94A3B8; height: 70px; margin-top: 6px; border-radius: 6px; background-color: #FAFAFA; clear: both; }")
-    sb.append(".footer { margin-top: 35px; text-align: center; font-size: 10px; color: #555555 !important; font-style: italic; border-top: 1px solid #CBD5E1; padding-top: 8px; clear: both; }")
+    sb.append(".match-container { display: flex; gap: 14px; margin: 10px 0 6px 0; clear: both; page-break-inside: avoid; }")
+    sb.append(".match-col { flex: 1; border: $borderThick solid $borderColor; border-radius: 8px; background: $boxBg; padding: 8px 10px; }")
+    sb.append(".match-col-title { font-size: 11px; font-weight: 800; color: #1E293B !important; margin-bottom: 6px; text-transform: uppercase; }")
+    sb.append(".match-item { display: flex; align-items: center; justify-content: space-between; background: #FFFFFF; border: 1px solid $borderColor; border-radius: 6px; padding: 5px 8px; margin-bottom: 6px; font-size: $baseFontSize; font-weight: 600; color: #0F172A !important; }")
+    sb.append(".match-num { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; background: #0284C7; color: #FFFFFF; font-size: 10px; font-weight: bold; border-radius: 50%; margin-right: 6px; flex-shrink: 0; }")
+    sb.append(".match-dot { width: 8px; height: 8px; background: #64748B; border-radius: 50%; display: inline-block; flex-shrink: 0; }")
+    sb.append(".match-box { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 18px; border: 1.5px solid #64748B; border-radius: 4px; font-size: 9px; color: #64748B; margin-right: 6px; flex-shrink: 0; }")
+    sb.append(".footer { margin-top: 35px; text-align: center; font-size: 10px; color: #555555 !important; font-style: italic; border-top: 1px solid $borderColor; padding-top: 8px; clear: both; }")
     sb.append("</style></head><body>")
-    sb.append("<div class='header'><div><div class='escola'>" + escola.uppercase() + "</div><div class='sub-header'>AVALIAÇÃO ADAPTADA & INCLUSIVA</div></div><div class='logo'>🦉 PROVALINO</div></div>")
-    sb.append("<div class='info'>Data: ____/____/_______ &nbsp;|&nbsp; Turma: " + (turma?.nome ?: "Geral") + " &nbsp;|&nbsp; Matéria: " + (turma?.materia ?: "Geral") + "</div>")
+    sb.append("<div class='header'><div><div class='escola'>" + escola.uppercase() + "</div><div class='sub-header'>" + effectiveDocType + " ADAPTADA & INCLUSIVA</div></div><div class='logo'>🦉 PROVALINO</div></div>")
+    sb.append("<div class='info'>Data: ____/____/_______ &nbsp;|&nbsp; Aluno: _____________________________</div>")
     sb.append("<div class='titulo'>" + prova.titulo + "</div>")
     questoes.forEachIndexed { index, q ->
         sb.append("<div class='questao'>")
         val cleanEnunciado = PictogramInjector.removeTechnicalTags(q.enunciado)
         sb.append("<div class='enunciado'><b>Questão " + (index + 1) + ":</b> " + cleanEnunciado + "</div>")
-        val isCaaProfile = q.perfilAdaptacao.uppercase() in listOf(
-            "TEA", "AUTISMO", "DEF_INTELECTUAL", "SUPORTE_COGNITIVO", "SINDROME_DOWN"
-        )
-        if (isCaaProfile && q.pictogramasSuporte.isNotBlank()) {
-            val terms = PictogramInjector.extractTerms(q.pictogramasSuporte)
-            if (terms.isNotEmpty()) {
-                sb.append("<div class='caa-box'>")
-                sb.append("<div class='caa-title'>🧩 CARTÕES VISUAIS DE APOIO (CAA):</div>")
-                sb.append("<div class='caa-cards'>")
-                terms.forEach { term ->
-                    val local = PictogramCatalog.find(term)
-                    val sym = local?.symbol ?: PictogramCatalog.resolveSymbol(term)
-                    val rawLbl = local?.label ?: term
+        val hasSupport = q.pictogramasSuporte.isNotBlank() || PictogramInjector.extractTerms(q.enunciado).isNotEmpty()
+        if (hasSupport) {
+            val terms = PictogramInjector.extractTerms(q.pictogramasSuporte.ifBlank { q.enunciado })
+            val validCards = mutableListOf<Triple<String?, String, String>>() // imageUrl, symbol, label
+            val isColoring = PictogramInjector.isColoringContext(q.enunciado) || PictogramInjector.isColoringContext(q.pictogramasSuporte)
+            terms.forEach { term ->
+                val cleanTerm = term.trim()
+                if (cleanTerm.isNotBlank()) {
+                    val cardCaa = CardCaaRepository.findCardFromCache(cleanTerm)
+                    val local = PictogramCatalog.find(cleanTerm)
+                    val sym = local?.symbol ?: PictogramCatalog.resolveSymbol(cleanTerm)
+                    val rawLbl = if (!cardCaa?.termo.isNullOrBlank()) cardCaa.termo else (local?.label ?: cleanTerm)
                     val lbl = rawLbl
                         .replace(Regex("""\[(?:Pictograma|Imagem|Foto|Fotografia|Desenho|CAA|Visual|Ícone|Icone|Símbolo|Simbolo|Card)(?:[/\s\-_]+(?:Pictograma|Imagem|Foto|Fotografia|Desenho|CAA|Visual|Ícone|Icone|Símbolo|Simbolo|Card))?:\s*""", RegexOption.IGNORE_CASE), "")
                         .replace("[", "")
@@ -3045,17 +4592,81 @@ fun buildHtmlExamContent(prova: Prova, turma: Turma?, questoes: List<Questao>, e
                         .replace(Regex("""[\p{So}\p{Sk}\p{Sm}\p{Cs}\p{Cn}]"""), "")
                         .trim()
                         .uppercase()
-                    if (lbl.isNotBlank()) {
-                        sb.append("<div class='caa-card'>")
-                        sb.append("<div class='caa-sym'>").append(sym).append("</div>")
-                        sb.append("<div class='caa-lbl'>").append(lbl).append("</div>")
-                        sb.append("</div>")
+
+                    // Obter imagem se existir cartão CAA válido no banco de dados (URL ou Base64)
+                    val imgUrl = if (cardCaa != null) {
+                        if (isColoring && cardCaa.hasValidBwImageUrl) {
+                            cardCaa.imagem_bw_url
+                        } else if (cardCaa.hasValidImageUrl) {
+                            cardCaa.imagem_url
+                        } else if (cardCaa.hasValidBase64) {
+                            val mime = if (cardCaa.mimType.isNotBlank() && !cardCaa.mimType.equals("nihil", ignoreCase = true)) cardCaa.mimType else "image/png"
+                            val cleanBase64 = if (cardCaa.base64.contains("base64,")) cardCaa.base64.substringAfter("base64,").trim() else cardCaa.base64.trim()
+                            "data:$mime;base64,$cleanBase64"
+                        } else null
+                    } else null
+
+                    // Se não houver imagem válida no banco, só exibe se houver símbolo condizente
+                    val hasCleanSymbol = sym.isNotBlank() && sym != "🖼️" && !sym.equals("nihil", ignoreCase = true)
+                    val isBlacklistedLabel = lbl in listOf(
+                        "ITEM", "IMAGEM", "DESENHO", "FOTO", "VERDADEIRO", "FALSO", "GERAL", "",
+                        "CALCULE", "SOME", "CONTE", "MARQUE", "LEIA", "OBSERVE", "RESPOSTA", "CORRETA",
+                        "QUANTIDADE", "QUANTIDADES", "OBJETO", "OBJETOS", "FRASE", "RESULTADO", "RESOLVA",
+                        "CARTÕES C.", "CARTÕES CAA", "DUAS COLU.", "DUAS COLUNAS", "COLUNAS"
+                    )
+
+                    // Somente inclui o card se houver imagem visual real (URL/Base64) OU símbolo de pictograma autêntico
+                    if (!isBlacklistedLabel && (imgUrl != null || hasCleanSymbol)) {
+                        validCards.add(Triple(imgUrl, if (hasCleanSymbol) sym else "", lbl))
                     }
+                }
+            }
+            if (validCards.isNotEmpty()) {
+                val boxTitle = if (isColoring) "🎨 ESPAÇO PARA DESENHO / COLORIR:" else "🧩 RECURSOS VISUAIS DE APOIO (CAA):"
+                sb.append("<div class='caa-box'>")
+                sb.append("<div class='caa-title'>$boxTitle</div>")
+                sb.append("<div class='caa-cards'>")
+                validCards.forEach { (imgUrl, sym, lbl) ->
+                    sb.append("<div class='caa-card'>")
+                    if (!imgUrl.isNullOrBlank()) {
+                        sb.append("<img src='$imgUrl' style='max-width:55px; max-height:55px; object-fit:contain; margin-bottom:4px;' alt='$lbl' />")
+                    } else if (sym.isNotBlank()) {
+                        sb.append("<div class='caa-sym'>").append(sym).append("</div>")
+                    }
+                    if (lbl.isNotBlank()) {
+                        sb.append("<div class='caa-lbl'>").append(lbl).append("</div>")
+                    }
+                    sb.append("</div>")
                 }
                 sb.append("</div></div>")
             }
         }
-        if (q.tipo == "MULTIPLE_CHOICE") {
+
+        val isCrossword = ActivityGridHelper.isCrosswordQuestion(q.tipo, q.enunciado)
+        val isWordSearch = ActivityGridHelper.isWordSearchQuestion(q.tipo, q.enunciado)
+        val isMatch = MatchQuestionHelper.isMatchQuestion(q.tipo, q.enunciado, q.opcaoA, q.opcaoB)
+
+        if (isCrossword) {
+            val data = ActivityGridHelper.generateCrossword(q.opcaoA, q.opcaoB, q.opcaoC, q.opcaoD, q.enunciado)
+            sb.append(ActivityGridHelper.renderCrosswordHtml(data, highContrastMode))
+        } else if (isWordSearch) {
+            val data = ActivityGridHelper.generateWordSearch(q.opcaoA, q.opcaoB, q.opcaoC, q.opcaoD, q.enunciado)
+            sb.append(ActivityGridHelper.renderWordSearchHtml(data, highContrastMode))
+        } else if (isMatch) {
+            val (leftItems, rightItems) = MatchQuestionHelper.parseMatchColumns(q.opcaoA, q.opcaoB, q.opcaoC, q.opcaoD, q.enunciado)
+            sb.append("<div class='match-container'>")
+            sb.append("<div class='match-col'><div class='match-col-title'>Coluna 1</div>")
+            leftItems.forEachIndexed { i, item ->
+                sb.append("<div class='match-item'><span><span class='match-num'>${i + 1}</span> $item</span><span class='match-dot'></span></div>")
+            }
+            sb.append("</div>")
+            sb.append("<div class='match-col'><div class='match-col-title'>Coluna 2</div>")
+            rightItems.forEach { item ->
+                sb.append("<div class='match-item'><span><span class='match-dot' style='margin-right:6px;'></span><span class='match-box'>( &nbsp; )</span> $item</span></div>")
+            }
+            sb.append("</div>")
+            sb.append("</div>")
+        } else if (q.tipo == "MULTIPLE_CHOICE") {
             sb.append("<div class='opcoes-box'>")
             if (q.opcaoA.isNotBlank()) sb.append("<div class='opcao'><b>A)</b> " + formatOptionText(q.opcaoA, "A") + "</div>")
             if (q.opcaoB.isNotBlank()) sb.append("<div class='opcao'><b>B)</b> " + formatOptionText(q.opcaoB, "B") + "</div>")
@@ -3069,17 +4680,30 @@ fun buildHtmlExamContent(prova: Prova, turma: Turma?, questoes: List<Questao>, e
         }
         sb.append("</div>")
     }
-    sb.append("<div class='footer'>Prova gerada utilizando o aplicativo Provalino - Atividades Adaptadas</div>")
+    val footerDocLabel = if (effectiveDocType == "AVALIAÇÃO") "Avaliação" else "Atividade"
+    sb.append("<div class='footer'>$footerDocLabel gerada utilizando o aplicativo Provalino - Atividades Adaptadas</div>")
     sb.append("</body></html>")
     return sb.toString()
 }
 
-fun buildPrintableExamText(prova: Prova, turma: Turma?, questoes: List<Questao>, escola: String): String {
+fun buildPrintableExamText(
+    prova: Prova,
+    questoes: List<Questao>,
+    escola: String,
+    docType: String = "Atividade"
+): String {
+    val effectiveDocType = if (docType.contains("avaliação", ignoreCase = true) || docType.contains("avaliacao", ignoreCase = true) ||
+        prova.titulo.contains("avaliação", ignoreCase = true) || prova.titulo.contains("avaliacao", ignoreCase = true)) {
+        "AVALIAÇÃO"
+    } else {
+        "ATIVIDADE"
+    }
     val sb = java.lang.StringBuilder()
     sb.append("===================================================\n")
     sb.append("ESCOLA: " + escola.uppercase() + "\n")
-    sb.append("DATA: ____/____/_______   |   TURMA: " + (turma?.nome ?: "Geral") + "\n")
-    sb.append("MATÉRIA: " + (turma?.materia ?: "Geral") + "\n")
+    sb.append("TIPO: " + effectiveDocType + " ADAPTADA & INCLUSIVA\n")
+    sb.append("NOME DO ALUNO: ____________________________________\n")
+    sb.append("DATA: ____/____/_______\n")
     sb.append("===================================================\n\n")
     sb.append("                 " + prova.titulo.uppercase() + "\n\n")
     questoes.forEachIndexed { index, q ->
@@ -3091,7 +4715,38 @@ fun buildPrintableExamText(prova: Prova, turma: Turma?, questoes: List<Questao>,
         if (isCaaProfile && cleanSupport.isNotBlank()) {
             sb.append("  [Suporte Visual (CAA): " + cleanSupport + "]\n")
         }
-        if (q.tipo == "MULTIPLE_CHOICE") {
+        val isCrossword = ActivityGridHelper.isCrosswordQuestion(q.tipo, q.enunciado)
+        val isWordSearch = ActivityGridHelper.isWordSearchQuestion(q.tipo, q.enunciado)
+        val isMatch = MatchQuestionHelper.isMatchQuestion(q.tipo, q.enunciado, q.opcaoA, q.opcaoB)
+
+        if (isCrossword) {
+            val data = ActivityGridHelper.generateCrossword(q.opcaoA, q.opcaoB, q.opcaoC, q.opcaoD, q.enunciado)
+            sb.append("  [PALAVRAS CRUZADAS / CRUZADINHA ADAPTADA]\n")
+            if (data.horizontais.isNotEmpty()) {
+                sb.append("  Horizontais:\n")
+                data.horizontais.forEach { sb.append("    ${it.number}. ${it.clue} (${it.word.length} letras)\n") }
+            }
+            if (data.verticais.isNotEmpty()) {
+                sb.append("  Verticais:\n")
+                data.verticais.forEach { sb.append("    ${it.number}. ${it.clue} (${it.word.length} letras)\n") }
+            }
+        } else if (isWordSearch) {
+            val data = ActivityGridHelper.generateWordSearch(q.opcaoA, q.opcaoB, q.opcaoC, q.opcaoD, q.enunciado)
+            sb.append("  [CAÇA-PALAVRAS SIMPLES]\n")
+            sb.append("  Palavras para encontrar: ${data.words.joinToString(", ")}\n")
+        } else if (isMatch) {
+            val (leftItems, rightItems) = MatchQuestionHelper.parseMatchColumns(q.opcaoA, q.opcaoB, q.opcaoC, q.opcaoD, q.enunciado)
+            sb.append("  [ASSOCIAÇÃO POR COLUNAS - LIGUE OS PARES CORRESPONDENTES]:\n")
+            sb.append("  COLUNA 1                                COLUNA 2\n")
+            val maxRows = maxOf(leftItems.size, rightItems.size)
+            for (i in 0 until maxRows) {
+                val l = leftItems.getOrNull(i) ?: ""
+                val r = rightItems.getOrNull(i) ?: ""
+                val leftStr = if (l.isNotBlank()) "(${i + 1}) $l" else ""
+                val rightStr = if (r.isNotBlank()) "(   ) $r" else ""
+                sb.append("  " + leftStr.padEnd(38) + " " + rightStr + "\n")
+            }
+        } else if (q.tipo == "MULTIPLE_CHOICE") {
             sb.append("  A) " + formatOptionText(q.opcaoA, "A") + "\n")
             sb.append("  B) " + formatOptionText(q.opcaoB, "B") + "\n")
             sb.append("  C) " + formatOptionText(q.opcaoC, "C") + "\n")
@@ -3104,7 +4759,8 @@ fun buildPrintableExamText(prova: Prova, turma: Turma?, questoes: List<Questao>,
         sb.append("\n")
     }
     sb.append("---------------------------------------------------\n")
-    sb.append("Prova gerada utilizando o aplicativo Provalino - Atividades Adaptadas\n")
+    val footerDocLabel = if (effectiveDocType == "AVALIAÇÃO") "Avaliação" else "Atividade"
+    sb.append("$footerDocLabel gerada utilizando o aplicativo Provalino - Atividades Adaptadas\n")
     return sb.toString()
 }
 @Composable
@@ -3119,7 +4775,7 @@ fun GradingForm(
 
     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
-            text = "📝 Corretor de Provas Rápido",
+            text = "📝 Corretor de Atividades Rápido",
             fontWeight = FontWeight.Bold,
             fontSize = 16.sp,
             color = Color(0xFF1E88E5)
@@ -3140,7 +4796,7 @@ fun GradingForm(
         )
 
         if (questoes.isEmpty()) {
-            Text("Nenhuma questão nesta prova para avaliar.", color = Color.Red, fontSize = 12.sp)
+            Text("Nenhuma questão nesta atividade para avaliar.", color = Color.Red, fontSize = 12.sp)
         } else {
             questoes.forEachIndexed { index, q ->
                 Card(
@@ -3300,13 +4956,12 @@ fun GradingForm(
 
 // --- HELPER DE FORMATAÇÃO DO TEXTO DA PROVA PARA COPIAR ---
 
-fun buildPrintableExamText(prova: Prova, turma: Turma?, questoes: List<Questao>): String {
+fun buildPrintableExamText(prova: Prova, questoes: List<Questao>): String {
     val sb = java.lang.StringBuilder()
     sb.append("===================================================\n")
     sb.append("ESCOLA: ___________________________________________\n")
     sb.append("NOME DO ALUNO: ____________________________________\n")
-    sb.append("DATA: ____/____/_______   |   SÉRIE/TURMA: ${turma?.nome ?: "__________"}\n")
-    sb.append("MATÉRIA: ${turma?.materia ?: "__________"}\n")
+    sb.append("DATA: ____/____/_______\n")
     sb.append("===================================================\n")
     sb.append("\n")
     sb.append("                 ${prova.titulo.uppercase()}\n")
@@ -3363,12 +5018,15 @@ fun CarteirasScreen(
     var expandedSerie by remember { mutableStateOf(false) }
     var expandedNecessidade by remember { mutableStateOf(false) }
     var expandedSeveridade by remember { mutableStateOf(false) }
+    var expandedAutonomia by remember { mutableStateOf(false) }
+    var showAutonomiaHelpDialog by remember { mutableStateOf(false) }
 
     // Form fields (iniciam vazios para novo cadastro)
     var nome by remember { mutableStateOf("") }
     var serieAno by remember { mutableStateOf("") }
     var necessidade by remember { mutableStateOf("") }
     var nivelSuporte by remember { mutableStateOf("") }
+    var nivelAutonomiaLeitura by remember { mutableStateOf("Em processo de alfabetização") }
     var observacoes by remember { mutableStateOf("") }
     var avatarEmoji by remember { mutableStateOf("🧩") }
 
@@ -3378,6 +5036,7 @@ fun CarteirasScreen(
     var selectedAssuntoBNCC by remember { mutableStateOf("Números e Operações") }
     var customAssunto by remember { mutableStateOf("") }
     var qtdQuestoes by remember { mutableStateOf("3") }
+    var docTypeAlunoAtividade by remember { mutableStateOf("Atividade") }
 
     val bnccSubjectsMap = mapOf(
         "Matemática" to listOf("Números e Operações", "Geometria", "Grandezas e Medidas", "Probabilidade e Estatística", "Álgebra"),
@@ -3396,8 +5055,6 @@ fun CarteirasScreen(
         "TDAH" to "Transtorno do Déficit de Atenção com Hiperatividade (TDAH) ⚡",
         "DISLEXIA" to "Transtorno Específico da Aprendizagem (Dislexia) 📖",
         "DEF_INTELECTUAL" to "Deficiência Intelectual 🧠",
-        "BAIXA_VISAO" to "Baixa Visão / Deficiência Visual 👁️",
-        "SURDEZ" to "Surdez / Deficiência Auditiva 👂",
         "SUPORTE_COGNITIVO" to "Apoio Cognitivo e Funcional (AEE) 🌸",
         "ALTAS_HABILIDADES" to "Altas Habilidades / Superdotação 🚀"
     )
@@ -3419,6 +5076,12 @@ fun CarteirasScreen(
         "Nível 1 (Leve / Suporte Baixo)",
         "Nível 2 (Moderado / Suporte Médio)",
         "Nível 3 (Severo / Suporte Intensivo)"
+    )
+
+    val nivelAutonomiaList = listOf(
+        "Independente / Alfabetizado",
+        "Em processo de alfabetização",
+        "Não alfabetizado (Dependente de Apoio Conceitual Extenso)"
     )
 
     val avatarList = listOf("🧩", "🧑‍🎓", "👧", "👦", "🎨", "🚀", "🌟", "📚", "⭐")
@@ -3479,6 +5142,7 @@ fun CarteirasScreen(
                                 serieAno = ""
                                 necessidade = ""
                                 nivelSuporte = ""
+                                nivelAutonomiaLeitura = "Em processo de alfabetização"
                                 observacoes = ""
                                 avatarEmoji = "🧩"
                                 showAddDialog = true
@@ -3510,6 +5174,7 @@ fun CarteirasScreen(
                         serieAno = ""
                         necessidade = ""
                         nivelSuporte = ""
+                        nivelAutonomiaLeitura = "Em processo de alfabetização"
                         observacoes = ""
                         avatarEmoji = "🧩"
                         showAddDialog = true
@@ -3593,6 +5258,7 @@ fun CarteirasScreen(
                                                 serieAno = aluno.serieAno
                                                 necessidade = aluno.necessidade
                                                 nivelSuporte = aluno.nivelSuporte
+                                                nivelAutonomiaLeitura = aluno.nivelAutonomiaLeitura.ifBlank { "Em processo de alfabetização" }
                                                 observacoes = aluno.observacoesPedagogicas
                                                 avatarEmoji = aluno.avatarEmoji.ifBlank { "🧩" }
                                                 showAddDialog = true
@@ -3629,8 +5295,6 @@ fun CarteirasScreen(
                                     "TDAH" -> Triple("⚡ TDAH", Color(0xFFFFF8E1), Color(0xFFF57F17))
                                     "DISLEXIA" -> Triple("📖 Dislexia", Color(0xFFF3E5F5), Color(0xFF4A148C))
                                     "DEF_INTELECTUAL" -> Triple("🧠 Def. Intelectual", Color(0xFFFFF3E0), Color(0xFFD84315))
-                                    "BAIXA_VISAO", "ACESSIBILIDADE_VISUAL" -> Triple("👁️ Baixa Visão", Color(0xFFEFEBE9), Color(0xFF4E342E))
-                                    "SURDEZ", "ACESSIBILIDADE_LINGUISTICA" -> Triple("👂 Surdez / Auditiva", Color(0xFFE0F7FA), Color(0xFF006064))
                                     "SUPORTE_COGNITIVO" -> Triple("🌸 Apoio Cognitivo", Color(0xFFFBE9E7), Color(0xFFD84315))
                                     "SUPORTE_MULTISSENSORIAL" -> Triple("🤝 Multissensorial", Color(0xFFFCE4EC), Color(0xFF880E4F))
                                     "ALTAS_HABILIDADES" -> Triple("🚀 Altas Habilidades", Color(0xFFE0F2F1), Color(0xFF00695C))
@@ -3645,14 +5309,38 @@ fun CarteirasScreen(
                                         Text(badgeText, fontSize = 10.sp, color = badgeFg, fontWeight = FontWeight.Bold)
                                     }
 
-                                    // Severidade / Nível de Suporte Badge
-                                    if (aluno.nivelSuporte.isNotBlank()) {
+                                    // Severidade / Nível de Suporte Badge (Desativado para Altas Habilidades)
+                                    if (aluno.necessidade == "ALTAS_HABILIDADES") {
+                                        Box(
+                                            modifier = Modifier
+                                                .background(Color(0xFFE8F5E9), RoundedCornerShape(6.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("🚀 Enriquecimento Curricular", fontSize = 9.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.Medium)
+                                        }
+                                    } else if (aluno.nivelSuporte.isNotBlank() && aluno.nivelSuporte != "Não aplicável") {
                                         Box(
                                             modifier = Modifier
                                                 .background(Color(0xFFEDE7F6), RoundedCornerShape(6.dp))
                                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                                         ) {
                                             Text("⚙️ ${aluno.nivelSuporte}", fontSize = 9.sp, color = Color(0xFF4527A0), fontWeight = FontWeight.Medium)
+                                        }
+                                    }
+
+                                    // Autonomia na Leitura Badge
+                                    if (aluno.nivelAutonomiaLeitura.isNotBlank()) {
+                                        val (autonomiaText, autonomiaBg, autonomiaFg) = when {
+                                            aluno.nivelAutonomiaLeitura.contains("Independente", ignoreCase = true) || aluno.nivelAutonomiaLeitura.contains("Alfabetizado", ignoreCase = true) -> Triple("📖 ${aluno.nivelAutonomiaLeitura}", Color(0xFFE8F5E9), Color(0xFF2E7D32))
+                                            aluno.nivelAutonomiaLeitura.contains("Não alfabetizado", ignoreCase = true) -> Triple("🧩 ${aluno.nivelAutonomiaLeitura}", Color(0xFFFFEBEE), Color(0xFFC62828))
+                                            else -> Triple("✏️ ${aluno.nivelAutonomiaLeitura}", Color(0xFFFFF3E0), Color(0xFFE65100))
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .background(autonomiaBg, RoundedCornerShape(6.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(autonomiaText, fontSize = 9.sp, color = autonomiaFg, fontWeight = FontWeight.Medium)
                                         }
                                     }
                                 }
@@ -3803,35 +5491,113 @@ fun CarteirasScreen(
                         }
                     }
 
-                    // 3. Seletor Dropdown do Grau de Severidade / Suporte (Sem pré-seleção)
-                    Text("Grau de Severidade / Suporte:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                    // 3. Seletor Dropdown do Grau de Severidade / Suporte (Desativado se Altas Habilidades)
+                    if (necessidade == "ALTAS_HABILIDADES") {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
+                            border = BorderStroke(1.dp, Color(0xFF81C784))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("🚀", fontSize = 20.sp, modifier = Modifier.padding(end = 8.dp))
+                                Text(
+                                    text = "Altas Habilidades / Superdotação não é uma deficiência. O grau de suporte foi desativado automaticamente.",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF1B5E20),
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    } else {
+                        Text("Grau de Severidade / Suporte:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                        ExposedDropdownMenuBox(
+                            expanded = expandedSeveridade,
+                            onExpandedChange = { expandedSeveridade = !expandedSeveridade },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            OutlinedTextField(
+                                value = nivelSuporte,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Grau de Severidade") },
+                                placeholder = { Text("Selecione o Grau de Severidade...") },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedSeveridade) },
+                                modifier = Modifier
+                                    .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                                    .fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                            ExposedDropdownMenu(
+                                expanded = expandedSeveridade,
+                                onDismissRequest = { expandedSeveridade = false }
+                            ) {
+                                severidadesList.forEach { sev ->
+                                    DropdownMenuItem(
+                                        text = { Text(sev, fontSize = 13.sp) },
+                                        onClick = {
+                                            nivelSuporte = sev
+                                            expandedSeveridade = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // 4. Seletor do Nível de Autonomia na Leitura e Escrita com Tooltip de Ajuda
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            "Nível de Autonomia na Leitura e Escrita:",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        IconButton(
+                            onClick = { showAutonomiaHelpDialog = true },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = "Orientações sobre Nível de Autonomia",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
                     ExposedDropdownMenuBox(
-                        expanded = expandedSeveridade,
-                        onExpandedChange = { expandedSeveridade = !expandedSeveridade },
+                        expanded = expandedAutonomia,
+                        onExpandedChange = { expandedAutonomia = !expandedAutonomia },
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         OutlinedTextField(
-                            value = nivelSuporte,
+                            value = nivelAutonomiaLeitura,
                             onValueChange = {},
                             readOnly = true,
-                            label = { Text("Grau de Severidade") },
-                            placeholder = { Text("Selecione o Grau de Severidade...") },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedSeveridade) },
+                            label = { Text("Autonomia na Leitura e Escrita") },
+                            placeholder = { Text("Selecione a Autonomia...") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedAutonomia) },
                             modifier = Modifier
                                 .menuAnchor(MenuAnchorType.PrimaryNotEditable)
                                 .fillMaxWidth(),
                             shape = RoundedCornerShape(10.dp)
                         )
                         ExposedDropdownMenu(
-                            expanded = expandedSeveridade,
-                            onDismissRequest = { expandedSeveridade = false }
+                            expanded = expandedAutonomia,
+                            onDismissRequest = { expandedAutonomia = false }
                         ) {
-                            severidadesList.forEach { sev ->
+                            nivelAutonomiaList.forEach { aut ->
                                 DropdownMenuItem(
-                                    text = { Text(sev, fontSize = 13.sp) },
+                                    text = { Text(aut, fontSize = 13.sp) },
                                     onClick = {
-                                        nivelSuporte = sev
-                                        expandedSeveridade = false
+                                        nivelAutonomiaLeitura = aut
+                                        expandedAutonomia = false
                                     }
                                 )
                             }
@@ -3884,18 +5650,20 @@ fun CarteirasScreen(
                             Toast.makeText(context, "Por favor, selecione a necessidade especial do aluno.", Toast.LENGTH_SHORT).show()
                             return@Button
                         }
-                        if (nivelSuporte.isBlank()) {
+                        if (necessidade != "ALTAS_HABILIDADES" && nivelSuporte.isBlank()) {
                             Toast.makeText(context, "Por favor, selecione o grau de severidade / suporte.", Toast.LENGTH_SHORT).show()
                             return@Button
                         }
+                        val finalNivelSuporte = if (necessidade == "ALTAS_HABILIDADES") "Não aplicável" else nivelSuporte
                         val result = viewModel.saveOrUpdateAlunoInclusao(
                             id = editingAlunoId ?: 0,
                             nome = nome,
                             necessidade = necessidade,
-                            nivelSuporte = nivelSuporte,
+                            nivelSuporte = finalNivelSuporte,
                             observacoesPedagogicas = observacoes,
                             avatarEmoji = avatarEmoji,
-                            serieAno = serieAno
+                            serieAno = serieAno,
+                            nivelAutonomiaLeitura = nivelAutonomiaLeitura
                         )
                         if (result) {
                             Toast.makeText(context, if (editingAlunoId != null) "Aluno atualizado na carteira!" else "Aluno salvo na carteira!", Toast.LENGTH_SHORT).show()
@@ -3905,6 +5673,7 @@ fun CarteirasScreen(
                             serieAno = ""
                             necessidade = ""
                             nivelSuporte = ""
+                            nivelAutonomiaLeitura = "Em processo de alfabetização"
                             observacoes = ""
                         } else {
                             Toast.makeText(context, "Limite máximo de 9 carteiras atingido!", Toast.LENGTH_LONG).show()
@@ -3926,6 +5695,85 @@ fun CarteirasScreen(
         )
     }
 
+    if (showAutonomiaHelpDialog) {
+        AlertDialog(
+            onDismissRequest = { showAutonomiaHelpDialog = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("ℹ️ Nível de Autonomia na Leitura", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
+                }
+            },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.verticalScroll(rememberScrollState())
+                ) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text("• Independente / Alfabetizado:", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF2E7D32))
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                "Lê e escreve textos de forma funcional; necessita apenas de adequações simples (ex: tempo estendido, enunciados diretos).",
+                                fontSize = 12.sp,
+                                color = Color(0xFF1B5E20),
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0)),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text("• Em processo de alfabetização:", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFFE65100))
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                "Já reconhece letras/sílabas, mas necessita de mediação constante e apoio pedagógico para ler textos.",
+                                fontSize = 12.sp,
+                                color = Color(0xFFBF360C),
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text("• Não alfabetizado (Apoio Conceitual Extenso):", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFFC62828))
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                "Apresenta incapacidade de leitura convencional. Necessita obrigatoriamente de adaptações de grande porte (substituição de texto por imagens, pictogramas, leitura oral pelo ledor ou recursos táteis).",
+                                fontSize = 12.sp,
+                                color = Color(0xFFB71C1C),
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showAutonomiaHelpDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Text("Entendido", fontWeight = FontWeight.Bold)
+                }
+            }
+        )
+    }
+
     if (alunoParaGerarAtividade != null) {
         val aluno = alunoParaGerarAtividade!!
         AlertDialog(
@@ -3940,6 +5788,9 @@ fun CarteirasScreen(
                     Text("Aluno: ${aluno.nome} (${aluno.serieAno})", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                     val displayNecessidade = necessidadesList.firstOrNull { it.first == aluno.necessidade }?.second ?: aluno.necessidade
                     Text("Perfil: $displayNecessidade • ${aluno.nivelSuporte}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (aluno.nivelAutonomiaLeitura.isNotBlank()) {
+                        Text("Autonomia: ${aluno.nivelAutonomiaLeitura}", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+                    }
                 }
             },
             text = {
@@ -3969,10 +5820,42 @@ fun CarteirasScreen(
                         }
                     }
 
+                    Text("Nomear Documento como:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val isAtividade = docTypeAlunoAtividade == "Atividade"
+                        OutlinedButton(
+                            onClick = { docTypeAlunoAtividade = "Atividade" },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (isAtividade) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                            ),
+                            border = BorderStroke(if (isAtividade) 2.dp else 1.dp, if (isAtividade) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("📝 Atividade", fontSize = 12.sp, fontWeight = if (isAtividade) FontWeight.Bold else FontWeight.Normal)
+                        }
+
+                        val isAvaliacao = docTypeAlunoAtividade == "Avaliação"
+                        OutlinedButton(
+                            onClick = { docTypeAlunoAtividade = "Avaliação" },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (isAvaliacao) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                            ),
+                            border = BorderStroke(if (isAvaliacao) 2.dp else 1.dp, if (isAvaliacao) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("📋 Avaliação", fontSize = 12.sp, fontWeight = if (isAvaliacao) FontWeight.Bold else FontWeight.Normal)
+                        }
+                    }
+
                     OutlinedTextField(
                         value = customAssunto,
                         onValueChange = { customAssunto = it },
-                        label = { Text("Descreva o Assunto/Conteúdo da Prova") },
+                        label = { Text("Descreva o Assunto/Conteúdo da Atividade") },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(8.dp)
                     )
@@ -3996,7 +5879,7 @@ fun CarteirasScreen(
                             return@Button
                         }
                         if (customAssunto.isBlank()) {
-                            Toast.makeText(context, "Por favor, descreva o assunto da prova.", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Por favor, descreva o assunto da atividade.", Toast.LENGTH_SHORT).show()
                             return@Button
                         }
                         val finalAssunto = "$selectedMateria - $customAssunto"
@@ -4004,14 +5887,15 @@ fun CarteirasScreen(
                             aluno = aluno,
                             subject = finalAssunto,
                             grade = aluno.serieAno,
-                            count = count
+                            count = count,
+                            docType = docTypeAlunoAtividade
                         )
-                        Toast.makeText(context, "Gerando prova adaptada e pronta para ${aluno.nome}...", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Gerando ${docTypeAlunoAtividade.lowercase()} adaptada e pronta para ${aluno.nome}...", Toast.LENGTH_SHORT).show()
                         alunoParaGerarAtividade = null
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
-                    Text("✨ Gerar Prova Pronta com Provalino AI (2 🪙)", fontWeight = FontWeight.Bold)
+                    Text("✨ Gerar $docTypeAlunoAtividade Pronta com Provalino AI (2 🪙)", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
@@ -4124,7 +6008,7 @@ fun SimulatedAdDialog(
                     )
                 } else {
                     Text(
-                        text = if (isRewarded && adLimitMessage == null) "Você assistiu ao anúncio e resgatou moedas para gerar e adaptar mais provas!" else "Obrigado por apoiar a plataforma Provalino de Inclusão Escolar!",
+                        text = if (isRewarded && adLimitMessage == null) "Você assistiu ao anúncio e resgatou moedas para gerar e adaptar mais atividades!" else "Obrigado por apoiar a plataforma Provalino de Inclusão Escolar!",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF2E7D32),
@@ -4165,11 +6049,11 @@ fun SimulatedAdDialog(
 @Composable
 fun GradesReportList(grades: List<NotaAluno>, viewModel: ProvalinoViewModel, prova: Prova) {
     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(text = "📊 Boletim e Notas da Prova", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF1E88E5))
+        Text(text = "📊 Boletim e Notas da Atividade", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF1E88E5))
         if (grades.isEmpty()) {
             ProvalinoEmptyState(
                 title = "Nenhuma Nota Lançada",
-                description = "Os resultados e notas dos alunos nesta avaliação aparecerão organizados aqui assim que forem lançados no sistema.",
+                description = "Os resultados e notas dos alunos nesta atividade aparecerão organizados aqui assim que forem lançados no sistema.",
                 buttonText = null,
                 onButtonClick = null
             )

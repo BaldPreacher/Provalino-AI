@@ -1,6 +1,8 @@
 package com.example.ui
 
 import android.app.Application
+import android.content.Context
+import timber.log.Timber
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.AlunoNecessidadeEspecial
@@ -43,6 +45,9 @@ data class OfflineNoQuestionsDialogState(
 
 class ProvalinoViewModel(application: Application) : AndroidViewModel(application) {
 
+    private val authRepository = AuthRepository()
+    private val prefs = application.getSharedPreferences("provalino_prefs", Context.MODE_PRIVATE)
+
     private val _offlineNoQuestionsState = MutableStateFlow<OfflineNoQuestionsDialogState?>(null)
     val offlineNoQuestionsState: StateFlow<OfflineNoQuestionsDialogState?> = _offlineNoQuestionsState.asStateFlow()
 
@@ -77,7 +82,7 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    private val repository: ProvalinoRepository
+    private val repository: ProvalinoRepository = ProvalinoRepository(ProvalinoDatabase.getDatabase(application).dao())
 
     private val _appUpdateState = MutableStateFlow(AppUpdateState())
     val appUpdateState: StateFlow<AppUpdateState> = _appUpdateState.asStateFlow()
@@ -99,12 +104,22 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
 
     val platformMetrics: StateFlow<PlatformMetrics> = AnalyticsRepository.metrics
 
-    init {
-        val database = ProvalinoDatabase.getDatabase(application)
-        repository = ProvalinoRepository(database.dao())
-        AnalyticsRepository.initialize(application)
-        checkAppVersion()
-        loadCardsCaa()
+    fun isNetworkAvailable(): Boolean {
+        return try {
+            val cm = getApplication<Application>().getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+            val network = cm?.activeNetwork ?: return false
+            val capabilities = cm.getNetworkCapabilities(network) ?: return false
+            capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private val _isOffline = MutableStateFlow(false)
+    val isOffline: StateFlow<Boolean> = _isOffline.asStateFlow()
+
+    fun checkNetworkStatus() {
+        _isOffline.value = !isNetworkAvailable()
     }
 
     fun refreshPlatformMetrics() {
@@ -210,18 +225,57 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun checkAppVersion() {
+    fun checkAppVersion(onFinished: ((AppUpdateState) -> Unit)? = null) {
         viewModelScope.launch {
             val state = AppVersionChecker.checkForUpdates(getApplication())
             _appUpdateState.value = state
+            onFinished?.invoke(state)
+        }
+    }
+
+    fun simulateUpdateDialog(versionCode: Long = 52, force: Boolean = false) {
+        _appUpdateState.value = AppUpdateState(
+            isUpdateAvailable = true,
+            isForceUpdate = force,
+            installedVersionCode = AppVersionChecker.getInstalledVersionCode(getApplication()),
+            latestVersionCode = versionCode,
+            latestVersionName = "$versionCode.0",
+            updateTitle = "Nova Versão do Provalino! 🚀",
+            updateMessage = "Uma nova versão com melhorias pedagógicas e correções está disponível na Google Play Store. Atualize agora para continuar aproveitando!",
+            releaseNotes = "• Melhorias no algoritmo de geração DUA\n• Aprimoramento da compatibilidade de faixas etárias\n• Estabilidade e correções gerais."
+        )
+    }
+
+    fun publishAppVersionToFirebase(
+        latestCode: Long,
+        latestName: String,
+        minCode: Long,
+        forceUpdate: Boolean,
+        releaseNotes: String,
+        onResult: (Boolean, String) -> Unit
+    ) {
+        viewModelScope.launch {
+            val result = AppVersionChecker.saveVersionConfig(
+                latestCode = latestCode,
+                latestName = latestName,
+                minCode = minCode,
+                forceUpdate = forceUpdate,
+                releaseNotes = releaseNotes
+            )
+            if (result.isSuccess) {
+                // Atualiza o estado local imediatamente
+                checkAppVersion()
+                onResult(true, "Configuração de versão v$latestCode publicada com sucesso no Firebase!")
+            } else {
+                val err = result.exceptionOrNull()?.message ?: "Erro desconhecido ao salvar no Firestore."
+                onResult(false, "Falha ao publicar no Firebase: $err")
+            }
         }
     }
 
     fun dismissUpdateDialog() {
         _appUpdateState.value = _appUpdateState.value.copy(isUpdateAvailable = false)
     }
-
-    private val authRepository = AuthRepository()
 
     private val _currentUser = MutableStateFlow(authRepository.currentUserSession)
     val currentUser: StateFlow<UserSession?> = _currentUser.asStateFlow()
@@ -243,7 +297,13 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
             val result = authRepository.signInWithEmail(email, pass)
             _authLoading.value = false
             if (result.isSuccess) {
-                _currentUser.value = authRepository.currentUserSession
+                val session = authRepository.currentUserSession
+                _currentUser.value = session
+                session?.uid?.let { uid ->
+                    if (uid.isNotBlank()) {
+                        prefs.edit().putString("cached_teacher_id", uid).apply()
+                    }
+                }
                 AnalyticsRepository.logLoginSuccess("email")
             } else {
                 _authError.value = result.exceptionOrNull()?.localizedMessage ?: "Erro ao realizar login."
@@ -262,7 +322,13 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
             val result = authRepository.signUpWithEmail(email, pass)
             _authLoading.value = false
             if (result.isSuccess) {
-                _currentUser.value = authRepository.currentUserSession
+                val session = authRepository.currentUserSession
+                _currentUser.value = session
+                session?.uid?.let { uid ->
+                    if (uid.isNotBlank()) {
+                        prefs.edit().putString("cached_teacher_id", uid).apply()
+                    }
+                }
                 AnalyticsRepository.logLoginSuccess("email_signup")
             } else {
                 _authError.value = result.exceptionOrNull()?.localizedMessage ?: "Erro ao criar conta."
@@ -277,7 +343,13 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
             val result = authRepository.signInWithGoogleCredential(idToken)
             _authLoading.value = false
             if (result.isSuccess) {
-                _currentUser.value = authRepository.currentUserSession
+                val session = authRepository.currentUserSession
+                _currentUser.value = session
+                session?.uid?.let { uid ->
+                    if (uid.isNotBlank()) {
+                        prefs.edit().putString("cached_teacher_id", uid).apply()
+                    }
+                }
                 AnalyticsRepository.logLoginSuccess("google")
             } else {
                 _authError.value = result.exceptionOrNull()?.localizedMessage ?: "Erro no login com Google."
@@ -306,6 +378,7 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
     fun signOut() {
         authRepository.signOut()
         _currentUser.value = null
+        _lastGeneratedProvaId.value = null
     }
 
 
@@ -415,7 +488,8 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
     // --- STATE FLOWS ---
     @OptIn(ExperimentalCoroutinesApi::class)
     val turmas: StateFlow<List<Turma>> = currentUser.flatMapLatest { user ->
-        repository.getTurmas(user?.uid ?: "")
+        val effectiveUid = user?.uid?.ifBlank { null } ?: prefs.getString("cached_teacher_id", "") ?: ""
+        repository.getTurmas(effectiveUid)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -424,7 +498,8 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val questoes: StateFlow<List<Questao>> = currentUser.flatMapLatest { user ->
-        repository.getQuestoes(user?.uid ?: "")
+        val effectiveUid = user?.uid?.ifBlank { null } ?: prefs.getString("cached_teacher_id", "") ?: ""
+        repository.getQuestoes(effectiveUid)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -433,8 +508,15 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val provas: StateFlow<List<Prova>> = currentUser.flatMapLatest { user ->
-        repository.getProvas(user?.uid ?: "")
+        val effectiveUid = user?.uid?.ifBlank { null } ?: prefs.getString("cached_teacher_id", "") ?: ""
+        repository.getProvas(effectiveUid)
     }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    val recentProvasCache: StateFlow<List<Prova>> = repository.getRecentProvas(15).stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
@@ -442,7 +524,8 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val alunosInclusao: StateFlow<List<AlunoNecessidadeEspecial>> = currentUser.flatMapLatest { user ->
-        repository.getAlunosInclusao(user?.uid ?: "")
+        val effectiveUid = user?.uid?.ifBlank { null } ?: prefs.getString("cached_teacher_id", "") ?: ""
+        repository.getAlunosInclusao(effectiveUid)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -462,16 +545,55 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
     private val _tourStep = MutableStateFlow(0)
     val tourStep: StateFlow<Int> = _tourStep.asStateFlow()
 
+    private val _teacherUserProfile = MutableStateFlow<Map<String, String>>(emptyMap())
+    val teacherUserProfile: StateFlow<Map<String, String>> = _teacherUserProfile.asStateFlow()
+
+    // Memória da última prova gerada nesta sessão (isenta de exibição de anúncio imediato)
+    private val _lastGeneratedProvaId = MutableStateFlow<Int?>(null)
+    val lastGeneratedProvaId: StateFlow<Int?> = _lastGeneratedProvaId.asStateFlow()
+
+    fun setLastGeneratedProvaId(id: Int?) {
+        _lastGeneratedProvaId.value = id
+    }
+
+    init {
+        Timber.tag("ProvalinoLifecycle").i("ProvalinoViewModel.init started")
+        try {
+            AnalyticsRepository.initialize(application)
+            checkAppVersion()
+            loadCardsCaa()
+            checkFirstRunOnboarding()
+            checkNetworkStatus()
+            authRepository.currentUserSession?.uid?.let { uid ->
+                if (uid.isNotBlank()) {
+                    prefs.edit().putString("cached_teacher_id", uid).apply()
+                }
+            }
+            loadTeacherProfile()
+            Timber.tag("ProvalinoLifecycle").i("ProvalinoViewModel.init completed successfully")
+        } catch (e: Throwable) {
+            Timber.tag("ProvalinoLifecycle").e(e, "Error in ProvalinoViewModel.init: %s", e.message)
+        }
+    }
+
+    private fun checkFirstRunOnboarding() {
+        val hasSeen = prefs.getBoolean("has_seen_onboarding_tour_v2", false)
+        if (!hasSeen) {
+            _tourStep.value = 0
+            _showTour.value = true
+        }
+    }
+
     fun startTour() {
         _tourStep.value = 0
         _showTour.value = true
     }
 
     fun nextTourStep() {
-        if (_tourStep.value < 3) {
+        if (_tourStep.value < 2) {
             _tourStep.value += 1
         } else {
-            _showTour.value = false
+            completeTour()
         }
     }
 
@@ -482,7 +604,12 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun dismissTour() {
+        completeTour()
+    }
+
+    fun completeTour() {
         _showTour.value = false
+        prefs.edit().putBoolean("has_seen_onboarding_tour_v2", true).apply()
     }
 
     // --- ACTIVE SCREEN STATE ---
@@ -583,7 +710,6 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             _isGenerating.value = true
             _aiError.value = null
-            // Trigger interstitial ad modal during generation interval
             openAdModal("INTERSTITIAL")
             try {
                 val tId = currentUser.value?.uid ?: ""
@@ -600,6 +726,7 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
                     )
                     val provaId = repository.insertProva(newProva)
                     val createdProva = newProva.copy(id = provaId.toInt())
+                    _lastGeneratedProvaId.value = createdProva.id
                     _activeProvaForGrades.value = createdProva
                     _currentScreen.value = "provas"
                 } else {
@@ -635,6 +762,7 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
         subject: String,
         grade: String,
         count: Int,
+        docType: String = "Atividade",
         onComplete: (Prova) -> Unit = {},
         skipCoinDeduction: Boolean = false
     ) {
@@ -642,7 +770,6 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             _isGenerating.value = true
             _aiError.value = null
-            // Trigger interstitial ad modal during generation interval
             openAdModal("INTERSTITIAL")
             try {
                 val tId = currentUser.value?.uid ?: ""
@@ -652,22 +779,25 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
                     count = count,
                     type = "ANY",
                     profile = aluno.necessidade,
-                    teacherId = tId
+                    teacherId = tId,
+                    nivelAutonomia = aluno.nivelAutonomiaLeitura
                 )
                 if (savedQuestions.isNotEmpty()) {
                     AnalyticsRepository.logActivityGenerated(aluno.necessidade, subject, grade, savedQuestions.size)
                     val idsString = savedQuestions.joinToString(",") { it.id.toString() }
+                    val docPrefix = if (docType.contains("avaliação", ignoreCase = true) || docType.contains("avaliacao", ignoreCase = true)) "Avaliação" else "Atividade"
                     val newProva = Prova(
-                        titulo = "Prova Adaptada: ${aluno.nome} - $subject",
+                        titulo = "$docPrefix Adaptada: ${aluno.nome} - $subject",
                         turmaId = null,
-                        descricao = "Aluno: ${aluno.nome} | Perfil: ${aluno.necessidade} (${aluno.nivelSuporte}) | Matéria: $subject ($grade)",
+                        descricao = "Aluno: ${aluno.nome} | Perfil: ${aluno.necessidade} (${aluno.nivelSuporte}) | Autonomia: ${aluno.nivelAutonomiaLeitura} | Matéria: $subject ($grade)",
                         questoesIds = idsString,
                         teacherId = tId
                     )
                     val provaId = repository.insertProva(newProva)
                     val createdProva = newProva.copy(id = provaId.toInt())
+                    _lastGeneratedProvaId.value = createdProva.id
                     _activeProvaForGrades.value = createdProva
-                    _currentScreen.value = "provas"
+                    _currentScreen.value = "detalhes_prova"
                     onComplete(createdProva)
                 } else {
                     _offlineNoQuestionsState.value = OfflineNoQuestionsDialogState(
@@ -705,8 +835,10 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
         count: Int,
         turmaId: Int? = null,
         alunoNome: String? = null,
+        docType: String = "Atividade",
         onComplete: (Prova) -> Unit = {},
-        skipCoinDeduction: Boolean = false
+        skipCoinDeduction: Boolean = false,
+        nivelAutonomia: String = ""
     ) {
         if (!skipCoinDeduction && !deduzirMoedas(2)) return
         viewModelScope.launch {
@@ -721,7 +853,8 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
                     count = count,
                     type = "ANY",
                     profile = profile,
-                    teacherId = tId
+                    teacherId = tId,
+                    nivelAutonomia = nivelAutonomia
                 )
                 if (savedQuestions.isNotEmpty()) {
                     AnalyticsRepository.logActivityGenerated(profile, subject, grade, savedQuestions.size)
@@ -731,8 +864,10 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
                     } else {
                         "Perfil Pedagógico: $profile | Matéria: $subject ($grade)"
                     }
+                    val docPrefix = if (docType.contains("avaliação", ignoreCase = true) || docType.contains("avaliacao", ignoreCase = true)) "Avaliação" else "Atividade"
+                    val defaultTitle = if (!alunoNome.isNullOrBlank()) "$docPrefix Adaptada: $alunoNome - $subject" else "$docPrefix: $subject"
                     val newProva = Prova(
-                        titulo = titulo.ifBlank { "Avaliação: $subject" },
+                        titulo = titulo.ifBlank { defaultTitle },
                         turmaId = turmaId,
                         descricao = desc,
                         questoesIds = idsString,
@@ -740,6 +875,7 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
                     )
                     val provaId = repository.insertProva(newProva)
                     val createdProva = newProva.copy(id = provaId.toInt())
+                    _lastGeneratedProvaId.value = createdProva.id
                     _activeProvaForGrades.value = createdProva
                     _currentScreen.value = "provas"
                     onComplete(createdProva)
@@ -809,9 +945,10 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
         nivelSuporte: String,
         observacoesPedagogicas: String,
         avatarEmoji: String,
-        serieAno: String
+        serieAno: String,
+        nivelAutonomiaLeitura: String = "Em processo de alfabetização"
     ): Boolean {
-        return saveOrUpdateAlunoInclusao(0, nome, necessidade, nivelSuporte, observacoesPedagogicas, avatarEmoji, serieAno)
+        return saveOrUpdateAlunoInclusao(0, nome, necessidade, nivelSuporte, observacoesPedagogicas, avatarEmoji, serieAno, nivelAutonomiaLeitura)
     }
 
     fun saveOrUpdateAlunoInclusao(
@@ -821,7 +958,8 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
         nivelSuporte: String,
         observacoesPedagogicas: String,
         avatarEmoji: String,
-        serieAno: String
+        serieAno: String,
+        nivelAutonomiaLeitura: String = "Em processo de alfabetização"
     ): Boolean {
         if (id == 0 && alunosInclusao.value.size >= 9) {
             return false // Max limit reached!
@@ -833,6 +971,7 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
                     nome = nome,
                     necessidade = necessidade,
                     nivelSuporte = nivelSuporte,
+                    nivelAutonomiaLeitura = nivelAutonomiaLeitura.ifBlank { "Em processo de alfabetização" },
                     observacoesPedagogicas = observacoesPedagogicas,
                     avatarEmoji = avatarEmoji.ifBlank { "🧩" },
                     serieAno = serieAno.ifBlank { "3º Ano Fundamental" },
@@ -855,14 +994,20 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     // 3. PROVAS
-    fun toggleQuestionSelection(id: Int) {
+    fun toggleQuestionSelection(id: Int, maxLimit: Int = 10): Boolean {
         val currentList = _selectedQuestions.value.toMutableList()
         if (currentList.contains(id)) {
             currentList.remove(id)
+            _selectedQuestions.value = currentList
+            return true
         } else {
+            if (currentList.size >= maxLimit) {
+                return false
+            }
             currentList.add(id)
+            _selectedQuestions.value = currentList
+            return true
         }
-        _selectedQuestions.value = currentList
     }
 
     fun clearQuestionSelection() {
@@ -893,6 +1038,15 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
             if (_activeProvaForGrades.value?.id == id) {
                 _activeProvaForGrades.value = null
                 _gradesForActiveProva.value = emptyList()
+            }
+        }
+    }
+
+    fun updateProva(prova: Prova) {
+        viewModelScope.launch {
+            repository.insertProva(prova)
+            if (_activeProvaForGrades.value?.id == prova.id) {
+                _activeProvaForGrades.value = prova
             }
         }
     }
@@ -982,6 +1136,49 @@ class ProvalinoViewModel(application: Application) : AndroidViewModel(applicatio
             repository.getNotasForProva(provaId).collect {
                 _gradesForActiveProva.value = it
             }
+        }
+    }
+
+    fun loadTeacherProfile() {
+        val uid = authRepository.currentUserSession?.uid ?: prefs.getString("cached_teacher_id", null) ?: return
+        viewModelScope.launch {
+            val result = authRepository.fetchUserProfile(uid)
+            result.onSuccess { data ->
+                _teacherUserProfile.value = data
+                val savedEscola = data["escola_padrao"]
+                if (!savedEscola.isNullOrBlank()) {
+                    prefs.edit().putString("saved_escola_padrao", savedEscola).apply()
+                }
+                val savedUser = data["user_name"]
+                if (!savedUser.isNullOrBlank()) {
+                    prefs.edit().putString("saved_teacher_user_name", savedUser).apply()
+                }
+            }
+        }
+    }
+
+    fun updateTeacherProfile(userName: String, escolaPadrao: String, onResult: (Boolean, String) -> Unit) {
+        val uid = authRepository.currentUserSession?.uid ?: prefs.getString("cached_teacher_id", null)
+        if (uid.isNullOrBlank()) {
+            onResult(false, "Usuário não autenticado.")
+            return
+        }
+        viewModelScope.launch {
+            val result = authRepository.updateUserProfile(uid, userName, escolaPadrao)
+            result.fold(
+                onSuccess = {
+                    val updated = mapOf("user_name" to userName.trim(), "escola_padrao" to escolaPadrao.trim())
+                    _teacherUserProfile.value = updated
+                    prefs.edit()
+                        .putString("saved_teacher_user_name", userName.trim())
+                        .putString("saved_escola_padrao", escolaPadrao.trim())
+                        .apply()
+                    onResult(true, "Perfil atualizado com sucesso!")
+                },
+                onFailure = { error ->
+                    onResult(false, "Erro ao salvar perfil: ${error.localizedMessage ?: "Verifique sua conexão."}")
+                }
+            )
         }
     }
 

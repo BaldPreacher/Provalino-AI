@@ -269,7 +269,7 @@ fun LoginScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = if (isRegisterMode) "🚀 Crie sua conta para adaptar provas em segundos!" else "👋 Olá, Professor(a)! Entre para acessar suas turmas.",
+                            text = if (isRegisterMode) "🚀 Crie sua conta para adaptar atividades em segundos!" else "👋 Olá, Professor(a)! Entre para acessar seus alunos e atividades.",
                             fontSize = 12.sp,
                             color = ClayColors.TealDark,
                             textAlign = TextAlign.Center,

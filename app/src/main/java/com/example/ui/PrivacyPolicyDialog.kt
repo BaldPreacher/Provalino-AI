@@ -82,7 +82,7 @@ fun PrivacyPolicyDialog(
                     PolicySectionTitle("2. Dados Coletados e Finalidade")
                     PolicyBodyText(
                         "• Dados de Cadastro e Autenticação: Para acessar a plataforma, coletamos seu nome e e-mail via Google Sign-In ou Firebase Authentication. Esses dados identificam o professor responsável pela conta.\n" +
-                        "• Informações Pedagógicas e Turmas: Dados de turmas, perfis de adaptação (como DUA/AEE) e questões pedagógicas criadas são armazenados no banco de dados para sincronização da sua biblioteca de materiais.\n" +
+                        "• Informações Pedagógicas e Carteira Inclusiva: Perfis de adaptação do aluno (AEE/DUA) e questões pedagógicas criadas são armazenados no banco de dados para sincronização da sua biblioteca de materiais.\n" +
                         "• Inteligência Artificial (Gemini API): O processamento com IA é utilizado exclusivamente para adaptar enunciados, sugerir recursos pedagógicos e simplificar linguagens conforme o perfil selecionado pelo docente. Não são enviados nem processados dados pessoais identificáveis de estudantes em modelos de treino público."
                     )
 

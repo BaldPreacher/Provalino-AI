@@ -67,6 +67,7 @@ data class AlunoNecessidadeEspecial(
     val nome: String,
     val necessidade: String, // "TEA", "TDAH", "DISLEXIA", "SUPORTE_COGNITIVO", "ACESSIBILIDADE_VISUAL", "ACESSIBILIDADE_LINGUISTICA", "SUPORTE_MULTISSENSORIAL", "ALTAS_HABILIDADES"
     val nivelSuporte: String = "Nível 1 (Leve)",
+    val nivelAutonomiaLeitura: String = "Em processo de alfabetização", // "Independente / Alfabetizado", "Em processo de alfabetização", "Não alfabetizado (Dependente de Apoio Conceitual Extenso)"
     val observacoesPedagogicas: String = "",
     val avatarEmoji: String = "🧩",
     val serieAno: String = "3º Ano Fundamental",
@@ -78,7 +79,7 @@ data class AlunoNecessidadeEspecial(
 @Dao
 interface ProvalinoDao {
     // Turmas
-    @Query("SELECT * FROM turmas WHERE teacherId = :teacherId ORDER BY nome ASC")
+    @Query("SELECT * FROM turmas WHERE (:teacherId != '' AND teacherId = :teacherId) OR (:teacherId = '') ORDER BY nome ASC")
     fun getAllTurmas(teacherId: String): Flow<List<Turma>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -88,16 +89,16 @@ interface ProvalinoDao {
     suspend fun deleteTurmaById(id: Int)
 
     // Questoes
-    @Query("SELECT * FROM questoes WHERE teacherId = :teacherId ORDER BY id DESC")
+    @Query("SELECT * FROM questoes WHERE (:teacherId != '' AND teacherId = :teacherId) OR (:teacherId = '') ORDER BY id DESC")
     fun getAllQuestoes(teacherId: String): Flow<List<Questao>>
 
     @Query("SELECT * FROM questoes WHERE id IN (:ids)")
     suspend fun getQuestoesByIds(ids: List<Int>): List<Questao>
 
-    @Query("SELECT * FROM questoes WHERE teacherId = :teacherId AND (assunto LIKE :query OR enunciado LIKE :query)")
+    @Query("SELECT * FROM questoes WHERE ((:teacherId != '' AND teacherId = :teacherId) OR (:teacherId = '')) AND (assunto LIKE :query OR enunciado LIKE :query)")
     fun searchQuestoes(teacherId: String, query: String): Flow<List<Questao>>
 
-    @Query("SELECT * FROM questoes WHERE (teacherId = :teacherId OR teacherId = '') AND (assunto LIKE '%' || :subject || '%' OR :subject LIKE '%' || assunto || '%' OR enunciado LIKE '%' || :subject || '%') ORDER BY id DESC")
+    @Query("SELECT * FROM questoes WHERE (teacherId = :teacherId OR teacherId = '' OR :teacherId = '') AND (assunto LIKE '%' || :subject || '%' OR :subject LIKE '%' || assunto || '%' OR enunciado LIKE '%' || :subject || '%') ORDER BY id DESC")
     suspend fun getMatchingQuestionsForFallback(teacherId: String, subject: String): List<Questao>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -107,8 +108,11 @@ interface ProvalinoDao {
     suspend fun deleteQuestaoById(id: Int)
 
     // Provas
-    @Query("SELECT * FROM provas WHERE teacherId = :teacherId ORDER BY dataCriacao DESC")
+    @Query("SELECT * FROM provas WHERE (:teacherId != '' AND teacherId = :teacherId) OR (:teacherId = '') ORDER BY dataCriacao DESC")
     fun getAllProvas(teacherId: String): Flow<List<Prova>>
+
+    @Query("SELECT * FROM provas ORDER BY dataCriacao DESC LIMIT :limit")
+    fun getRecentProvas(limit: Int = 10): Flow<List<Prova>>
 
     @Query("SELECT * FROM provas WHERE id = :id")
     suspend fun getProvaById(id: Int): Prova?
@@ -130,7 +134,7 @@ interface ProvalinoDao {
     suspend fun deleteNotaAlunoById(id: Int)
 
     // Carteira Alunos Inclusao
-    @Query("SELECT * FROM alunos_inclusao WHERE teacherId = :teacherId ORDER BY nome ASC")
+    @Query("SELECT * FROM alunos_inclusao WHERE (:teacherId != '' AND teacherId = :teacherId) OR (:teacherId = '') ORDER BY nome ASC")
     fun getAllAlunosInclusao(teacherId: String): Flow<List<AlunoNecessidadeEspecial>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -144,7 +148,7 @@ interface ProvalinoDao {
 
 @Database(
     entities = [Turma::class, Questao::class, Prova::class, NotaAluno::class, AlunoNecessidadeEspecial::class],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class ProvalinoDatabase : RoomDatabase() {
@@ -156,6 +160,7 @@ abstract class ProvalinoDatabase : RoomDatabase() {
 
         fun getDatabase(context: Context): ProvalinoDatabase {
             return INSTANCE ?: synchronized(this) {
+                android.util.Log.d("ProvalinoLifecycle", "Initializing ProvalinoDatabase Room instance")
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     ProvalinoDatabase::class.java,
@@ -164,6 +169,7 @@ abstract class ProvalinoDatabase : RoomDatabase() {
                 .fallbackToDestructiveMigration(true)
                 .build()
                 INSTANCE = instance
+                android.util.Log.d("ProvalinoLifecycle", "ProvalinoDatabase Room instance created successfully")
                 instance
             }
         }

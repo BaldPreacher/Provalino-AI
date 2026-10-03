@@ -47,11 +47,17 @@ fun PictogramSupportRow(
 
     LaunchedEffect(rawPictogramText) {
         isLoading = true
-        badges = PictogramInjector.resolveBadges(terms)
+        badges = PictogramInjector.resolveBadges(terms, contextText = rawPictogramText)
         isLoading = false
     }
 
-    if (badges.isNotEmpty() || isLoading) {
+    val validBadges = remember(badges) {
+        badges.filter { badge ->
+            badge.isCardCaa || badge.isArasaac || (badge.simboloLocal.isNotBlank() && badge.simboloLocal != "🖼️")
+        }
+    }
+
+    if (validBadges.isNotEmpty() || (isLoading && terms.isNotEmpty())) {
         Column(
             modifier = modifier
                 .fillMaxWidth()
@@ -86,7 +92,7 @@ fun PictogramSupportRow(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                badges.forEach { badge ->
+                validBadges.forEach { badge ->
                     PictogramCardItem(badge = badge)
                 }
             }
@@ -101,9 +107,20 @@ fun PictogramCardItem(
 ) {
     val context = LocalContext.current
 
-    // Decodifica imagem Base64 se presente no modelo card_caa
-    val base64Bitmap = remember(badge.base64Image) {
-        badge.base64Image?.let { rawB64 ->
+    // Determina a URL primária conforme o contexto (P&B para colorir/pintar, Colorida para padrão)
+    val primaryUrl = remember(badge, badge.isColoringContext) {
+        if (badge.isColoringContext) {
+            badge.imagemBwUrl?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+                ?: badge.imageUrl?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+        } else {
+            badge.imageUrl?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+                ?: badge.imagemBwUrl?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+        }
+    }
+
+    // Decodifica imagem Base64 apenas como fallback secundário para registros legados
+    val base64Bitmap = remember(badge.base64Image, primaryUrl) {
+        if (primaryUrl != null) null else badge.base64Image?.let { rawB64 ->
             try {
                 val clean = if (rawB64.contains("base64,")) rawB64.substringAfter("base64,").trim() else rawB64.trim()
                 val bytes = Base64.decode(clean, Base64.DEFAULT)
@@ -116,7 +133,7 @@ fun PictogramCardItem(
 
     Column(
         modifier = modifier
-            .widthIn(min = 76.dp, max = 104.dp)
+            .widthIn(min = 78.dp, max = 112.dp)
             .background(Color.White, RoundedCornerShape(10.dp))
             .border(2.dp, if (badge.isCardCaa) Color(0xFF0284C7) else Color(0xFF0F766E), RoundedCornerShape(10.dp))
             .padding(horizontal = 6.dp, vertical = 6.dp),
@@ -131,9 +148,12 @@ fun PictogramCardItem(
             contentAlignment = Alignment.Center
         ) {
             when {
-                base64Bitmap != null -> {
-                    Image(
-                        bitmap = base64Bitmap,
+                !primaryUrl.isNullOrBlank() -> {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(primaryUrl)
+                            .crossfade(true)
+                            .build(),
                         contentDescription = badge.termo,
                         modifier = Modifier
                             .fillMaxSize()
@@ -141,12 +161,9 @@ fun PictogramCardItem(
                         contentScale = ContentScale.Fit
                     )
                 }
-                !badge.imageUrl.isNullOrBlank() && (badge.imageUrl.startsWith("http://") || badge.imageUrl.startsWith("https://")) -> {
-                    AsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(badge.imageUrl)
-                            .crossfade(true)
-                            .build(),
+                base64Bitmap != null -> {
+                    Image(
+                        bitmap = base64Bitmap,
                         contentDescription = badge.termo,
                         modifier = Modifier
                             .fillMaxSize()
@@ -181,11 +198,12 @@ fun PictogramCardItem(
 
         Text(
             text = badge.termo,
-            fontSize = 10.sp,
+            fontSize = 9.5.sp,
+            lineHeight = 11.5.sp,
             fontWeight = FontWeight.Black,
             color = Color(0xFF0F172A),
             textAlign = TextAlign.Center,
-            maxLines = 1,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis
         )
     }

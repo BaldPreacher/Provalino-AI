@@ -26,6 +26,27 @@ object CardCaaRepository {
     private var isPreloaded = false
 
     /**
+     * Busca síncrona imediata na memória cache para renderização rápida em HTML e UI.
+     */
+    fun findCardFromCache(term: String): CardCaa? {
+        val clean = term.trim()
+        if (clean.isBlank()) return null
+        val norm = CardCaa.normalizeString(clean)
+        for (card in memoryCache.values) {
+            if (CardCaa.normalizeString(card.termo) == norm) return card
+        }
+        for (card in memoryCache.values) {
+            for (sin in card.sinonimos) {
+                if (CardCaa.normalizeString(sin) == norm) return card
+            }
+        }
+        for (card in memoryCache.values) {
+            if (card.matchesQuery(clean)) return card
+        }
+        return null
+    }
+
+    /**
      * Retorna a lista completa de cartões CAA da coleção 'card_caa'.
      */
     suspend fun getAllCards(forceRefresh: Boolean = false): Result<List<CardCaa>> = withContext(Dispatchers.IO) {

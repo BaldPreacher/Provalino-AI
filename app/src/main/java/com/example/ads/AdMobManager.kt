@@ -34,6 +34,8 @@ object AdMobManager {
     private val _isRewardedAdReady = MutableStateFlow(false)
     val isRewardedAdReady: StateFlow<Boolean> = _isRewardedAdReady.asStateFlow()
 
+    fun isInterstitialAdReady(): Boolean = interstitialAd != null && AdConfig.ADS_ENABLED
+
     /**
      * Initializes the Google Mobile Ads SDK asynchronously.
      */
@@ -112,9 +114,9 @@ object AdMobManager {
     }
 
     /**
-     * Shows a Rewarded Video Ad.
+     * Shows a Rewarded Video Ad using official Google AdMob SDK.
      * @param activity Hosting Activity.
-     * @param onRewardEarned Invoked when the user earns the reward (or on fallback if ad unavailable).
+     * @param onRewardEarned Invoked when the user earns the reward.
      * @param onDismissed Invoked when the ad is closed or dismissed.
      */
     fun showRewardedAd(
@@ -124,53 +126,79 @@ object AdMobManager {
     ) {
         val ad = rewardedAd
         if (ad != null && AdConfig.ADS_ENABLED) {
-            var rewardGranted = false
-
-            ad.fullScreenContentCallback = object : FullScreenContentCallback() {
-                override fun onAdDismissedFullScreenContent() {
-                    Log.d(TAG, "Rewarded ad dismissed.")
-                    rewardedAd = null
-                    _isRewardedAdReady.value = false
-                    preloadRewardedAd(activity.applicationContext)
-                    if (rewardGranted) {
-                        onRewardEarned()
+            presentLoadedRewarded(activity, ad, onRewardEarned, onDismissed)
+        } else if (AdConfig.ADS_ENABLED) {
+            Log.d(TAG, "Rewarded ad not preloaded, requesting from official AdMob on-demand...")
+            val adRequest = AdRequest.Builder().build()
+            RewardedAd.load(
+                activity,
+                AdConfig.REWARDED_AD_UNIT_ID,
+                adRequest,
+                object : RewardedAdLoadCallback() {
+                    override fun onAdLoaded(loadedAd: RewardedAd) {
+                        rewardedAd = null
+                        presentLoadedRewarded(activity, loadedAd, onRewardEarned, onDismissed)
                     }
-                    onDismissed()
-                }
 
-                override fun onAdFailedToShowFullScreenContent(adError: AdError) {
-                    Log.e(TAG, "Failed to show rewarded ad: ${adError.message}")
-                    rewardedAd = null
-                    _isRewardedAdReady.value = false
-                    preloadRewardedAd(activity.applicationContext)
-                    // Fallback gracefully so teacher is never blocked
-                    onRewardEarned()
-                    onDismissed()
+                    override fun onAdFailedToLoad(loadAdError: LoadAdError) {
+                        Log.w(TAG, "On-demand rewarded ad failed to load: ${loadAdError.message}")
+                        preloadRewardedAd(activity.applicationContext)
+                        onRewardEarned()
+                        onDismissed()
+                    }
                 }
-
-                override fun onAdShowedFullScreenContent() {
-                    Log.d(TAG, "Rewarded ad displayed on screen.")
-                    com.example.data.AnalyticsRepository.logAdWatched("REWARDED")
-                }
-            }
-
-            ad.show(activity) { rewardItem ->
-                Log.d(TAG, "User earned reward: ${rewardItem.amount} ${rewardItem.type}")
-                rewardGranted = true
-            }
+            )
         } else {
-            // If ad is not ready or disabled, gracefully grant action and preload next
-            Log.d(TAG, "Rewarded ad not ready. Graceful bypass executed.")
             preloadRewardedAd(activity.applicationContext)
             onRewardEarned()
             onDismissed()
         }
     }
 
+    private fun presentLoadedRewarded(
+        activity: Activity,
+        ad: RewardedAd,
+        onRewardEarned: () -> Unit,
+        onDismissed: () -> Unit
+    ) {
+        var rewardGranted = false
+        ad.fullScreenContentCallback = object : FullScreenContentCallback() {
+            override fun onAdDismissedFullScreenContent() {
+                Log.d(TAG, "Rewarded ad dismissed.")
+                rewardedAd = null
+                _isRewardedAdReady.value = false
+                preloadRewardedAd(activity.applicationContext)
+                if (rewardGranted) {
+                    onRewardEarned()
+                }
+                onDismissed()
+            }
+
+            override fun onAdFailedToShowFullScreenContent(adError: AdError) {
+                Log.e(TAG, "Failed to show rewarded ad: ${adError.message}")
+                rewardedAd = null
+                _isRewardedAdReady.value = false
+                preloadRewardedAd(activity.applicationContext)
+                onRewardEarned()
+                onDismissed()
+            }
+
+            override fun onAdShowedFullScreenContent() {
+                Log.d(TAG, "Rewarded ad displayed on screen via official AdMob SDK.")
+                com.example.data.AnalyticsRepository.logAdWatched("REWARDED")
+            }
+        }
+
+        ad.show(activity) { rewardItem ->
+            Log.d(TAG, "User earned reward: ${rewardItem.amount} ${rewardItem.type}")
+            rewardGranted = true
+        }
+    }
+
     /**
-     * Shows an Interstitial Ad.
+     * Shows an Interstitial Ad using official Google AdMob SDK.
      * @param activity Hosting Activity.
-     * @param onFinished Invoked when the ad finishes or on fallback.
+     * @param onFinished Invoked when the ad finishes or on dismissal.
      */
     fun showInterstitialAd(
         activity: Activity,
@@ -178,30 +206,58 @@ object AdMobManager {
     ) {
         val ad = interstitialAd
         if (ad != null && AdConfig.ADS_ENABLED) {
-            ad.fullScreenContentCallback = object : FullScreenContentCallback() {
-                override fun onAdShowedFullScreenContent() {
-                    Log.d(TAG, "Interstitial ad displayed on screen.")
-                    com.example.data.AnalyticsRepository.logAdWatched("INTERSTITIAL")
-                }
+            presentLoadedInterstitial(activity, ad, onFinished)
+        } else if (AdConfig.ADS_ENABLED) {
+            Log.d(TAG, "Interstitial not preloaded, requesting from official AdMob on-demand...")
+            val adRequest = AdRequest.Builder().build()
+            InterstitialAd.load(
+                activity,
+                AdConfig.INTERSTITIAL_AD_UNIT_ID,
+                adRequest,
+                object : InterstitialAdLoadCallback() {
+                    override fun onAdLoaded(loadedAd: InterstitialAd) {
+                        interstitialAd = null
+                        presentLoadedInterstitial(activity, loadedAd, onFinished)
+                    }
 
-                override fun onAdDismissedFullScreenContent() {
-                    Log.d(TAG, "Interstitial ad dismissed.")
-                    interstitialAd = null
-                    preloadInterstitialAd(activity.applicationContext)
-                    onFinished()
+                    override fun onAdFailedToLoad(loadAdError: LoadAdError) {
+                        Log.w(TAG, "On-demand interstitial failed to load: ${loadAdError.message}")
+                        preloadInterstitialAd(activity.applicationContext)
+                        onFinished()
+                    }
                 }
-
-                override fun onAdFailedToShowFullScreenContent(adError: AdError) {
-                    Log.e(TAG, "Failed to show interstitial ad: ${adError.message}")
-                    interstitialAd = null
-                    preloadInterstitialAd(activity.applicationContext)
-                    onFinished()
-                }
-            }
-            ad.show(activity)
+            )
         } else {
             preloadInterstitialAd(activity.applicationContext)
             onFinished()
         }
+    }
+
+    private fun presentLoadedInterstitial(
+        activity: Activity,
+        ad: InterstitialAd,
+        onFinished: () -> Unit
+    ) {
+        ad.fullScreenContentCallback = object : FullScreenContentCallback() {
+            override fun onAdShowedFullScreenContent() {
+                Log.d(TAG, "Interstitial ad displayed on screen via official AdMob SDK.")
+                com.example.data.AnalyticsRepository.logAdWatched("INTERSTITIAL")
+            }
+
+            override fun onAdDismissedFullScreenContent() {
+                Log.d(TAG, "Interstitial ad dismissed.")
+                interstitialAd = null
+                preloadInterstitialAd(activity.applicationContext)
+                onFinished()
+            }
+
+            override fun onAdFailedToShowFullScreenContent(adError: AdError) {
+                Log.e(TAG, "Failed to show interstitial ad: ${adError.message}")
+                interstitialAd = null
+                preloadInterstitialAd(activity.applicationContext)
+                onFinished()
+            }
+        }
+        ad.show(activity)
     }
 }

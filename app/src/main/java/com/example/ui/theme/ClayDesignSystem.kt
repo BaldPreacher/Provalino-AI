@@ -195,7 +195,7 @@ fun ClayButton(
     shape: Shape = RoundedCornerShape(16.dp),
     elevation: Dp = 4.dp,
     enabled: Boolean = true,
-    contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+    contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
     testTag: String? = null,
     content: @Composable RowScope.() -> Unit
 ) {

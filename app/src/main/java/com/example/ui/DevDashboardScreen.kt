@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.aistudio.provalino.teacher.abcxyz.BuildConfig
 import com.example.data.CardCaa
 import com.example.data.CaaImportProgress
 import com.example.data.PlatformMetrics
@@ -708,7 +709,7 @@ fun DevAccountsTab(
                             }
                         }
 
-                        Divider(color = Color(0xFFF1F5F9))
+                        HorizontalDivider(color = Color(0xFFF1F5F9))
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -916,7 +917,7 @@ fun DevAdminSecurityTab(
                         Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text("E-mail Administrador: $currentUserEmail", fontSize = 11.sp, fontWeight = FontWeight.Medium)
                             Text("Permissões: Acesso Total (Root Dev/Admin)", fontSize = 10.sp, color = Color(0xFF15803D))
-                            Text("Versão do Applet: 39 (v39.0)", fontSize = 10.sp, color = Color(0xFF64748B))
+                            Text("Versão do App Instalado: ${BuildConfig.VERSION_CODE} (v${BuildConfig.VERSION_NAME})", fontSize = 10.sp, color = Color(0xFF64748B))
                         }
                     }
 
@@ -943,6 +944,194 @@ fun DevAdminSecurityTab(
                         Icon(Icons.Default.ExitToApp, contentDescription = "Encerrar Sessão", modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Encerrar Sessão (Log Out)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        // CARD DE GESTÃO DE VERSÕES E AVISO DE ATUALIZAÇÃO NO FIREBASE
+        item {
+            val updateState by viewModel.appUpdateState.collectAsState()
+            var inputVersionCode by remember(updateState.latestVersionCode) {
+                mutableStateOf(if (updateState.latestVersionCode > 0) updateState.latestVersionCode.toString() else BuildConfig.VERSION_CODE.toString())
+            }
+            var inputVersionName by remember(updateState.latestVersionName) {
+                mutableStateOf(if (updateState.latestVersionName.isNotBlank()) updateState.latestVersionName else BuildConfig.VERSION_NAME)
+            }
+            var inputMinVersionCode by remember { mutableStateOf("47") }
+            var forceUpdate by remember(updateState.isForceUpdate) { mutableStateOf(updateState.isForceUpdate) }
+            var releaseNotes by remember(updateState.releaseNotes) {
+                mutableStateOf(if (updateState.releaseNotes.isNotBlank()) updateState.releaseNotes else "• Melhorias no algoritmo de geração DUA\n• Aprimoramento da compatibilidade por faixa etária\n• Correções gerais de estabilidade.")
+            }
+            var isPublishing by remember { mutableStateOf(false) }
+
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("🚀", fontSize = 18.sp)
+                            Text(
+                                "Gestão de Atualização (Firebase)",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = Color(0xFF1E293B)
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                viewModel.checkAppVersion { state ->
+                                    onStatusUpdate("Firebase consultado: Remoto v${state.latestVersionCode} | Instalado v${state.installedVersionCode}", false)
+                                }
+                            },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Recarregar", tint = Color(0xFF0F766E), modifier = Modifier.size(16.dp))
+                        }
+                    }
+
+                    Text(
+                        "O aviso de atualização para os usuários é controlado pelo documento 'app_config/version' no Cloud Firestore.",
+                        fontSize = 11.sp,
+                        color = Color(0xFF64748B),
+                        lineHeight = 15.sp
+                    )
+
+                    // Painel de Status Comparativo
+                    Surface(
+                        color = Color(0xFFF1F5F9),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Versão deste APK compilado:", fontSize = 11.sp, color = Color(0xFF475569))
+                                Text("v${BuildConfig.VERSION_CODE} (${BuildConfig.VERSION_NAME})", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color(0xFF0F766E))
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Versão configurada no Firebase:", fontSize = 11.sp, color = Color(0xFF475569))
+                                Text("v${updateState.latestVersionCode} (${updateState.latestVersionName})", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color(0xFF1E40AF))
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Status para quem tem este APK:", fontSize = 11.sp, color = Color(0xFF475569))
+                                val statusText = when {
+                                    updateState.latestVersionCode > BuildConfig.VERSION_CODE -> "⚠️ Notificação Ativa (Existe versão mais recente)"
+                                    updateState.latestVersionCode == BuildConfig.VERSION_CODE.toLong() -> "✅ Versão Atualizada (Sem aviso)"
+                                    else -> "ℹ️ Versão do Firebase menor que o APK compilado"
+                                }
+                                val statusColor = when {
+                                    updateState.latestVersionCode > BuildConfig.VERSION_CODE -> Color(0xFFD97706)
+                                    updateState.latestVersionCode == BuildConfig.VERSION_CODE.toLong() -> Color(0xFF15803D)
+                                    else -> Color(0xFF64748B)
+                                }
+                                Text(statusText, fontWeight = FontWeight.Bold, fontSize = 10.sp, color = statusColor)
+                            }
+                        }
+                    }
+
+                    // Campos de edição
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = inputVersionCode,
+                            onValueChange = { inputVersionCode = it.filter { ch -> ch.isDigit() } },
+                            label = { Text("Version Code (ex: 51)", fontSize = 11.sp) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = inputVersionName,
+                            onValueChange = { inputVersionName = it },
+                            label = { Text("Version Name (ex: 51.0)", fontSize = 11.sp) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = inputMinVersionCode,
+                            onValueChange = { inputMinVersionCode = it.filter { ch -> ch.isDigit() } },
+                            label = { Text("Versão Mínima Obrigatória", fontSize = 11.sp) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("Atualização Obrigatória (Bloqueante)", fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                            Text("Impede o usuário de fechar o aviso", fontSize = 9.sp, color = Color(0xFF64748B))
+                        }
+                        Switch(
+                            checked = forceUpdate,
+                            onCheckedChange = { forceUpdate = it }
+                        )
+                    }
+
+                    OutlinedTextField(
+                        value = releaseNotes,
+                        onValueChange = { releaseNotes = it },
+                        label = { Text("Notas da Versão / Novidades", fontSize = 11.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 2,
+                        maxLines = 4
+                    )
+
+                    // Ações
+                    Button(
+                        onClick = {
+                            val code = inputVersionCode.toLongOrNull() ?: BuildConfig.VERSION_CODE.toLong()
+                            val minCode = inputMinVersionCode.toLongOrNull() ?: 1L
+                            isPublishing = true
+                            viewModel.publishAppVersionToFirebase(
+                                latestCode = code,
+                                latestName = inputVersionName.ifBlank { "$code.0" },
+                                minCode = minCode,
+                                forceUpdate = forceUpdate,
+                                releaseNotes = releaseNotes
+                            ) { success, msg ->
+                                isPublishing = false
+                                onStatusUpdate(msg, !success)
+                            }
+                        },
+                        enabled = !isPublishing,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (isPublishing) {
+                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Gravando no Firebase...", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        } else {
+                            Icon(Icons.Default.Send, contentDescription = "Salvar", modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Salvar & Disparar Atualização para Usuários", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            val code = inputVersionCode.toLongOrNull() ?: (BuildConfig.VERSION_CODE.toLong() + 1)
+                            viewModel.simulateUpdateDialog(versionCode = code, force = forceUpdate)
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF0F766E)),
+                        border = BorderStroke(1.dp, Color(0xFF0F766E)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = "Simular", modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Testar / Simular Diálogo no meu Aparelho", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }

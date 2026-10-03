@@ -90,6 +90,18 @@ object PictogramCatalog {
             Item("mae", "Mãe", "👩", "Família"),
             Item("mãe", "Mãe", "👩", "Família"),
             Item("pai", "Pai", "👨", "Família"),
+            Item("pais", "Pais (Família)", "👨‍👩‍👧‍👦", "Família"),
+            Item("país", "País", "🌎", "Geografia"),
+            Item("países", "Países", "🌎", "Geografia"),
+            Item("manga fruta", "Manga (Fruta)", "🥭", "Alimentos"),
+            Item("manga de camisa", "Manga de Camisa", "👔", "Roupas"),
+            Item("mangá", "Mangá (HQ)", "📖", "Cultura"),
+            Item("força", "Força Física", "💪", "Ciências"),
+            Item("forca", "Jogo da Forca", "🪢", "Lógica"),
+            Item("secretária", "Secretária", "👩‍💼", "Profissão"),
+            Item("secretaria", "Secretaria Escolar", "🏫", "Escola"),
+            Item("sábio", "Sábio", "🧠", "Conhecimento"),
+            Item("sabiá", "Sabiá", "🐦", "Animais"),
             Item("irmao", "Irmão", "👦", "Família"),
             Item("irmão", "Irmão", "👦", "Família"),
             Item("irma", "Irmã", "👧", "Família"),
@@ -371,7 +383,66 @@ object PictogramCatalog {
             Item("vovô", "Vovô", "👴", "Família"),
             Item("vovó", "Vovó", "👵", "Família"),
             Item("amigo", "Amigo", "🧒🧒", "Família"),
-            Item("amiga", "Amiga", "👧👧", "Família")
+            Item("amiga", "Amiga", "👧👧", "Família"),
+
+            // --- ALFABETIZAÇÃO, LETRAS E VOGAIS ---
+            Item("alfabeto", "Alfabeto", "🔤", "Alfabetização"),
+            Item("letra", "Letras", "🔤", "Alfabetização"),
+            Item("letras", "Letras", "🔤", "Alfabetização"),
+            Item("vogal", "Vogais", "🔤", "Alfabetização"),
+            Item("vogais", "Vogais", "🔤", "Alfabetização"),
+            Item("consoante", "Consoantes", "🔤", "Alfabetização"),
+            Item("consoantes", "Consoantes", "🔤", "Alfabetização"),
+            Item("palavra", "Palavra", "📝", "Alfabetização"),
+            Item("palavras", "Palavras", "📝", "Alfabetização"),
+            Item("silaba", "Sílaba", "🧩", "Alfabetização"),
+            Item("sílaba", "Sílaba", "🧩", "Alfabetização"),
+            Item("silabas", "Sílabas", "🧩", "Alfabetização"),
+            Item("sílabas", "Sílabas", "🧩", "Alfabetização"),
+
+            // --- MATEMÁTICA CONCRETA, NÚMEROS, FRAÇÕES E DECIMAIS ---
+            Item("numero", "Número", "🔢", "Matemática"),
+            Item("número", "Número", "🔢", "Matemática"),
+            Item("numeros", "Números", "🔢", "Matemática"),
+            Item("números", "Números", "🔢", "Matemática"),
+            Item("fracao", "Fração", "🍕", "Matemática"),
+            Item("fração", "Fração", "🍕", "Matemática"),
+            Item("fracoes", "Frações", "🍕", "Matemática"),
+            Item("frações", "Frações", "🍕", "Matemática"),
+            Item("fracao de pizza", "Fração de Pizza", "🍕", "Matemática"),
+            Item("fração de pizza", "Fração de Pizza", "🍕", "Matemática"),
+            Item("decimal", "Decimal", "🔢", "Matemática"),
+            Item("decimais", "Decimais", "🔢", "Matemática"),
+            Item("decimo", "Décimo", "🔢", "Matemática"),
+            Item("décimo", "Décimo", "🔢", "Matemática"),
+            Item("centesimo", "Centésimo", "🔢", "Matemática"),
+            Item("centésimo", "Centésimo", "🔢", "Matemática"),
+            Item("soma", "Soma", "➕", "Matemática"),
+            Item("adicao", "Adição", "➕", "Matemática"),
+            Item("adição", "Adição", "➕", "Matemática"),
+            Item("subtracao", "Subtração", "➖", "Matemática"),
+            Item("subtração", "Subtração", "➖", "Matemática"),
+            Item("igual", "Igual", "🟰", "Matemática"),
+
+            // --- BRINQUEDOS, LUGARES E COTIDIANO INFANTIL ---
+            Item("bola", "Bola", "⚽", "Brinquedo"),
+            Item("bolas", "Bolas", "⚽", "Brinquedo"),
+            Item("boneca", "Boneca", "🪆", "Brinquedo"),
+            Item("boneco", "Boneco", "🧸", "Brinquedo"),
+            Item("carrinho", "Carrinho", "🚗", "Brinquedo"),
+            Item("brinquedo", "Brinquedo", "🧸", "Brinquedo"),
+            Item("brinquedos", "Brinquedos", "🧸", "Brinquedo"),
+            Item("pipoca", "Pipoca", "🍿", "Alimento"),
+            Item("igreja", "Igreja", "⛪", "Lugar"),
+            Item("parque", "Parque", "🏞️", "Lugar"),
+            Item("praca", "Praça", "🌳", "Lugar"),
+            Item("praça", "Praça", "🌳", "Lugar"),
+            Item("casa", "Casa", "🏠", "Lugar"),
+            Item("gato", "Gato", "🐱", "Animais"),
+            Item("cachorro", "Cachorro", "🐶", "Animais"),
+            Item("passaro", "Pássaro", "🐦", "Animais"),
+            Item("pássaro", "Pássaro", "🐦", "Animais"),
+            Item("peixe", "Peixe", "🐟", "Animais")
         )
 
         list.associateBy { it.key.lowercase().trim() }
@@ -412,14 +483,16 @@ object PictogramCatalog {
             catalog[w]?.let { return it }
         }
 
-        // 4. Match por contenção
-        for ((key, item) in catalog) {
-            if (normalized.contains(key) || key.contains(normalized)) {
-                return item
+        // 4. Match por contenção apenas para termos longos (> 3 letras) onde a chave inteira esteja contida
+        if (normalized.length >= 4) {
+            for ((key, item) in catalog) {
+                if (key.length >= 4 && normalized == key) {
+                    return item
+                }
             }
         }
 
-        // 5. Fallback semântico inteligente para evitar tachinhas ou símbolos quebrados
+        // 5. Fallback semântico determinístico estrito (sem substring ambígua como 'ar')
         val cleanLabel = term
             .replace(Regex("""\[(?:Pictograma|Imagem|Foto|Fotografia|Desenho|CAA|Visual|Ícone|Icone|Símbolo|Simbolo|Card)(?:[/\s\-_]+(?:Pictograma|Imagem|Foto|Fotografia|Desenho|CAA|Visual|Ícone|Icone|Símbolo|Simbolo|Card))?:\s*""", RegexOption.IGNORE_CASE), "")
             .replace("[", "")
@@ -428,27 +501,29 @@ object PictogramCatalog {
             .replace(Regex("""[\p{So}\p{Sk}\p{Sm}\p{Cs}\p{Cn}]"""), "")
             .trim()
 
+        val exactWords = normalized.split(" ", "-", "_").filter { it.isNotBlank() }
+
         return when {
-            normalized.contains("foto") || normalized.contains("fotografia") || normalized.contains("retrato") || normalized.contains("camera") || normalized.contains("câmera") -> Item(normalized, cleanLabel.ifBlank { "Foto" }, "📷", "Mídia")
-            normalized.contains("familia") || normalized.contains("família") || normalized.contains("parente") -> Item(normalized, cleanLabel.ifBlank { "Família" }, "👨‍👩‍👧‍👦", "Família")
-            normalized.contains("avo") || normalized.contains("avó") || normalized.contains("vovo") || normalized.contains("vovó") || normalized.contains("idosa") -> Item(normalized, cleanLabel.ifBlank { "Avó" }, "👵", "Família")
-            normalized.contains("avô") || normalized.contains("vovô") || normalized.contains("idoso") -> Item(normalized, cleanLabel.ifBlank { "Avô" }, "👴", "Família")
-            normalized.contains("velho") || normalized.contains("velha") -> Item(normalized, cleanLabel.ifBlank { "Mais Velho" }, "👵", "História")
-            normalized.contains("novo") || normalized.contains("nova") || normalized.contains("crianca") || normalized.contains("criança") || normalized.contains("bebe") || normalized.contains("bebê") -> Item(normalized, cleanLabel.ifBlank { "Novo" }, "👶", "História")
-            normalized.contains("verdade") || normalized.contains("verdadeiro") || normalized.contains("verdadeira") || normalized == "v" -> Item(normalized, cleanLabel.ifBlank { "Verdadeiro (V)" }, "✅", "Lógica")
-            normalized.contains("falso") || normalized.contains("falsa") || normalized.contains("falsidade") || normalized.contains("mentira") || normalized == "f" -> Item(normalized, cleanLabel.ifBlank { "Falso (F)" }, "❌", "Lógica")
-            normalized.contains("antigo") || normalized.contains("antiga") || normalized.contains("passado") || normalized.contains("historia") || normalized.contains("história") -> Item(normalized, cleanLabel.ifBlank { "História" }, "⏳", "História")
-            normalized.contains("hoje") || normalized.contains("atual") || normalized.contains("presente") || normalized.contains("agora") -> Item(normalized, cleanLabel.ifBlank { "Atual" }, "📅", "Tempo")
-            normalized.contains("ver") || normalized.contains("olhar") || normalized.contains("olho") || normalized.contains("enxergar") -> Item(normalized, cleanLabel.ifBlank { "Ver" }, "👀", "Sentidos")
-            normalized.contains("ouvir") || normalized.contains("escutar") || normalized.contains("ouvido") || normalized.contains("orelha") -> Item(normalized, cleanLabel.ifBlank { "Ouvir" }, "👂", "Sentidos")
-            normalized.contains("falar") || normalized.contains("dizer") || normalized.contains("contar") || normalized.contains("historia") -> Item(normalized, cleanLabel.ifBlank { "Falar" }, "🗣️", "Comunicação")
-            normalized.contains("solido") || normalized.contains("sólido") || normalized.contains("gelo") -> Item(normalized, cleanLabel.ifBlank { "Sólido" }, "🧊", "Ciências")
-            normalized.contains("liquido") || normalized.contains("líquido") || normalized.contains("agua") || normalized.contains("água") -> Item(normalized, cleanLabel.ifBlank { "Líquido" }, "💧", "Ciências")
-            normalized.contains("gas") || normalized.contains("gasoso") || normalized.contains("ar") || normalized.contains("vapor") -> Item(normalized, cleanLabel.ifBlank { "Gasoso" }, "💨", "Ciências")
-            normalized.contains("quente") || normalized.contains("fogo") || normalized.contains("calor") -> Item(normalized, cleanLabel.ifBlank { "Quente" }, "🔥", "Ciências")
-            normalized.contains("frio") || normalized.contains("neve") -> Item(normalized, cleanLabel.ifBlank { "Frio" }, "❄️", "Ciências")
+            exactWords.any { it in listOf("foto", "fotografia", "retrato", "camera", "câmera") } -> Item(normalized, cleanLabel.ifBlank { "Foto" }, "📷", "Mídia")
+            exactWords.any { it in listOf("familia", "família", "parente", "parentes") } -> Item(normalized, cleanLabel.ifBlank { "Família" }, "👨‍👩‍👧‍👦", "Família")
+            exactWords.any { it in listOf("avo", "avó", "vovo", "vovó", "idosa") } -> Item(normalized, cleanLabel.ifBlank { "Avó" }, "👵", "Família")
+            exactWords.any { it in listOf("avô", "vovô", "idoso") } -> Item(normalized, cleanLabel.ifBlank { "Avô" }, "👴", "Família")
+            exactWords.any { it in listOf("velho", "velha", "idosos") } -> Item(normalized, cleanLabel.ifBlank { "Mais Velho" }, "👵", "História")
+            exactWords.any { it in listOf("novo", "nova", "crianca", "criança", "bebe", "bebê") } -> Item(normalized, cleanLabel.ifBlank { "Novo" }, "👶", "História")
+            exactWords.any { it in listOf("verdade", "verdadeiro", "verdadeira") } || normalized == "v" -> Item(normalized, cleanLabel.ifBlank { "Verdadeiro (V)" }, "✅", "Lógica")
+            exactWords.any { it in listOf("falso", "falsa", "falsidade", "mentira") } || normalized == "f" -> Item(normalized, cleanLabel.ifBlank { "Falso (F)" }, "❌", "Lógica")
+            exactWords.any { it in listOf("antigo", "antiga", "passado", "historia", "história") } -> Item(normalized, cleanLabel.ifBlank { "História" }, "⏳", "História")
+            exactWords.any { it in listOf("hoje", "atual", "presente", "agora") } -> Item(normalized, cleanLabel.ifBlank { "Atual" }, "📅", "Tempo")
+            exactWords.any { it in listOf("ver", "olhar", "olho", "olhos", "enxergar") } -> Item(normalized, cleanLabel.ifBlank { "Ver" }, "👀", "Sentidos")
+            exactWords.any { it in listOf("ouvir", "escutar", "ouvido", "orelha") } -> Item(normalized, cleanLabel.ifBlank { "Ouvir" }, "👂", "Sentidos")
+            exactWords.any { it in listOf("falar", "dizer", "contar") } -> Item(normalized, cleanLabel.ifBlank { "Falar" }, "🗣️", "Comunicação")
+            exactWords.any { it in listOf("solido", "sólido", "gelo") } -> Item(normalized, cleanLabel.ifBlank { "Sólido" }, "🧊", "Ciências")
+            exactWords.any { it in listOf("liquido", "líquido", "agua", "água") } -> Item(normalized, cleanLabel.ifBlank { "Líquido" }, "💧", "Ciências")
+            exactWords.any { it in listOf("gas", "gasoso", "vapor", "oxigênio", "oxigenio") } || exactWords.contains("ar") -> Item(normalized, cleanLabel.ifBlank { "Gasoso" }, "💨", "Ciências")
+            exactWords.any { it in listOf("quente", "fogo", "calor") } -> Item(normalized, cleanLabel.ifBlank { "Quente" }, "🔥", "Ciências")
+            exactWords.any { it in listOf("frio", "neve", "gelado") } -> Item(normalized, cleanLabel.ifBlank { "Frio" }, "❄️", "Ciências")
             normalized.all { it.isDigit() } -> Item(normalized, cleanLabel.ifBlank { normalized }, "🔢", "Matemática")
-            else -> Item(normalized, cleanLabel.ifBlank { "Item" }, "🖼️", "Geral")
+            else -> null
         }
     }
 
@@ -456,7 +531,7 @@ object PictogramCatalog {
      * Resolve um símbolo/emoji determinístico para um termo ou expressão textual.
      */
     fun resolveSymbol(term: String): String {
-        return find(term)?.symbol ?: "🖼️"
+        return find(term)?.symbol ?: ""
     }
 
     /**

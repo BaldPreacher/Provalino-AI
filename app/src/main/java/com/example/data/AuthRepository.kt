@@ -18,7 +18,9 @@ data class UserAccountItem(
 
 data class UserSession(
     val uid: String,
-    val email: String?
+    val email: String?,
+    val userName: String? = null,
+    val escolaPadrao: String? = null
 )
 
 class AuthRepository {
@@ -191,24 +193,61 @@ class AuthRepository {
         try {
             withTimeoutOrNull(3000L) {
                 val cleanEmail = email.trim().lowercase()
-                val nomeCalculado = if (displayName.isNotBlank()) displayName else cleanEmail.substringBefore("@")
+                val defaultUserName = if (displayName.isNotBlank()) displayName else cleanEmail.substringBefore("@")
                 val now = System.currentTimeMillis()
+
+                val userDoc = fs.collection("users").document(uid).get().await()
+                val existingUserName = userDoc.getString("user_name") ?: userDoc.getString("userName")
+                val existingEscola = userDoc.getString("escola_padrao") ?: userDoc.getString("escolaPadrao")
 
                 val userMap = mutableMapOf<String, Any>(
                     "uid" to uid,
                     "email" to cleanEmail,
-                    "nome" to nomeCalculado,
+                    "nome" to (existingUserName ?: defaultUserName),
+                    "user_name" to (existingUserName ?: defaultUserName),
                     "status" to "ativo",
                     "tipo_usuario" to "professor",
                     "ultimoLogin" to now,
-                    "app_version" to "40.0",
-                    "app_version_code" to 40L,
+                    "app_version" to "45.0",
+                    "app_version_code" to 45L,
                     "plataforma" to "android"
                 )
+                if (existingEscola != null) {
+                    userMap["escola_padrao"] = existingEscola
+                }
                 fs.collection("users").document(uid).set(userMap, com.google.firebase.firestore.SetOptions.merge()).await()
             }
         } catch (e: Exception) {
             Log.w("AuthRepository", "Falha ao sincronizar conta no Firestore: ${e.message}")
+        }
+    }
+
+    suspend fun fetchUserProfile(uid: String): Result<Map<String, String>> {
+        val fs = firestore ?: return Result.failure(Exception("Firestore indisponível"))
+        return try {
+            val doc = fs.collection("users").document(uid).get().await()
+            val userName = doc.getString("user_name") ?: doc.getString("nome") ?: ""
+            val escolaPadrao = doc.getString("escola_padrao") ?: doc.getString("escolaPadrao") ?: ""
+            Result.success(mapOf("user_name" to userName, "escola_padrao" to escolaPadrao))
+        } catch (e: Exception) {
+            Log.w("AuthRepository", "Aviso ao buscar perfil do professor: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    suspend fun updateUserProfile(uid: String, userName: String, escolaPadrao: String): Result<Unit> {
+        val fs = firestore ?: return Result.failure(Exception("Firestore indisponível"))
+        return try {
+            val data = mutableMapOf<String, Any>(
+                "user_name" to userName.trim(),
+                "nome" to userName.trim(),
+                "escola_padrao" to escolaPadrao.trim()
+            )
+            fs.collection("users").document(uid).set(data, com.google.firebase.firestore.SetOptions.merge()).await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("AuthRepository", "Erro ao atualizar perfil do professor: ${e.message}", e)
+            Result.failure(e)
         }
     }
 
